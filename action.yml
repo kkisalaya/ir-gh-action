@@ -1,0 +1,78 @@
+name: 'PSE Security Proxy'
+description: 'Configures the Proxy Security Engine (PSE) to monitor and secure your build process'
+author: 'InvisiRisk Security'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  api_url:
+    description: 'URL of the InvisiRisk API'
+    required: true
+  app_token:
+    description: 'Authentication token for the InvisiRisk API'
+    required: true
+  portal_url:
+    description: 'URL of the InvisiRisk Portal'
+    required: true
+  debug:
+    description: 'Enable debug mode for verbose logging'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create scan in InvisiRisk Portal
+      id: create_scan
+      shell: bash
+      run: |
+        # Create scan object in InvisiRisk Portal
+        echo "Creating scan in InvisiRisk Portal..."
+        SCAN_RESPONSE=$(curl -s -X POST "${{ inputs.api_url }}/utilityapi/v1/scan" \
+          -H "Content-Type: application/json" \
+          -d "{\"api_key\": \"${{ inputs.app_token }}\"}")
+        
+        # Extract scan ID from response
+        SCAN_ID=$(echo "$SCAN_RESPONSE" | grep -o '"scan_id":"[^"]*' | cut -d'"' -f4)
+        
+        if [ -z "$SCAN_ID" ]; then
+          echo "Error: Failed to create scan object"
+          exit 1
+        fi
+        
+        echo "Scan object created with ID: $SCAN_ID"
+        echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
+      
+    - name: Setup PSE Proxy
+      shell: bash
+      run: ${{ github.action_path }}/setup.sh
+      env:
+        API_URL: ${{ inputs.api_url }}
+        APP_TOKEN: ${{ inputs.app_token }}
+        PORTAL_URL: ${{ inputs.portal_url }}
+        SCAN_ID: ${{ env.SCAN_ID }}
+        DEBUG: ${{ inputs.debug }}
+        GITHUB_TOKEN: ${{ github.token }}
+    
+    - name: Register cleanup
+      shell: bash
+      run: |
+        # Register cleanup script to run at the end of the job
+        echo "::set-output name=cleanup::true"
+        # Create a post-job cleanup step using GitHub Actions' post-job hook
+        cat <<EOF >> $GITHUB_ENV
+        GITHUB_CLEANUP: ${{ github.action_path }}/cleanup.sh
+        EOF
+    
+    - name: Cleanup PSE Proxy
+      if: always()
+      shell: bash
+      run: ${{ github.action_path }}/cleanup.sh
+      env:
+        API_URL: ${{ inputs.api_url }}
+        APP_TOKEN: ${{ inputs.app_token }}
+        PORTAL_URL: ${{ inputs.portal_url }}
+        SCAN_ID: ${{ env.SCAN_ID }}
+        DEBUG: ${{ inputs.debug }}
+        GITHUB_TOKEN: ${{ github.token }}
