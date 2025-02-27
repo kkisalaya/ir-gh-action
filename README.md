@@ -1,22 +1,14 @@
 # PSE Security Proxy GitHub Action
 
-This GitHub Action configures the Proxy Security Engine (PSE) to monitor and secure your build process by intercepting HTTPS traffic and applying security policies.
+This GitHub Action integrates with InvisiRisk's Pipeline Security Engine (PSE) to enhance the security of your build process.
 
 ## Overview
 
-The PSE GitHub Action is a component of InvisiRisk's software supply chain GRC (Governance, Risk, and Compliance) platform. It sets up a secure proxy that:
+The PSE GitHub Action helps you secure your software supply chain by monitoring and enforcing security policies during your build process. It integrates seamlessly with your existing GitHub Actions workflows to provide:
 
-1. Intercepts build system HTTPS traffic
-2. Applies configurable security policies based on Open Policy Agent
-3. Monitors and reports on build activities for security and compliance purposes
-4. Generates detailed reports in the InvisiRisk Portal
-
-## Features
-
-- **Transparent Integration**: Works with your existing GitHub Actions workflows
-- **Security Policy Enforcement**: Prevents the use of vulnerable dependencies
-- **Build Activity Monitoring**: Tracks all network activity during your build
-- **Compliance Reporting**: Generates detailed reports for audit and compliance purposes
+- **Security Policy Enforcement**: Prevent the use of vulnerable dependencies
+- **Build Activity Monitoring**: Track network activity during your build
+- **Compliance Reporting**: Generate detailed reports for audit and compliance purposes
 - **Minimal Performance Impact**: Optimized for speed and reliability
 
 ## Usage
@@ -47,12 +39,7 @@ jobs:
           npm run build
 ```
 
-That's it! The PSE Security Proxy GitHub Action handles all the complexity internally:
-- Creating a scan object in the InvisiRisk Portal
-- Obtaining ECR credentials for pulling the PSE container
-- Setting up the proxy configuration
-- Routing all HTTPS traffic through the proxy
-- Reporting build results back to the InvisiRisk Portal
+That's it! The PSE Security Proxy GitHub Action handles all the complexity internally, allowing you to focus on your build process while ensuring security and compliance.
 
 ### With Debug Mode
 
@@ -83,28 +70,20 @@ If you need more detailed logging, you can enable debug mode:
 2. API token with appropriate permissions
 3. GitHub Actions workflow running on Ubuntu (other Linux distributions are supported but may require additional configuration)
 
-## How It Works
-
-1. The action sets up a Man-in-the-Middle (MITM) proxy that intercepts all HTTPS traffic from your build
-2. It configures the build environment to trust the PSE certificate
-3. All HTTPS traffic is routed through the PSE proxy, which applies security policies
-4. Build activity is monitored and reported to the InvisiRisk Portal
-5. After the build completes, the action cleans up the proxy configuration
-
 ## Troubleshooting
 
 ### Common Issues
 
 1. **Certificate Trust Issues**:
-   - Verify that the PSE certificate is properly installed
-   - Check if your build tools respect the standard certificate environment variables
+   - Verify that your build tools respect the standard certificate environment variables
+   - Contact InvisiRisk support if certificate issues persist
 
 2. **Network Configuration Problems**:
-   - Ensure that your build environment allows iptables modifications
-   - Check if there are any conflicting network configurations
+   - Ensure that your build environment allows outbound network connections
+   - Check if there are any network restrictions in your GitHub Actions environment
 
 3. **Docker-in-Docker Issues**:
-   - If your build uses Docker, ensure that the Docker daemon is configured to trust the PSE certificate
+   - If your build uses Docker, ensure that the Docker daemon is properly configured
 
 ## Support
 

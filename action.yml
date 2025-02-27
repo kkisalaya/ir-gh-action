@@ -1,5 +1,5 @@
 name: 'PSE Security Proxy'
-description: 'Configures the Proxy Security Engine (PSE) to monitor and secure your build process'
+description: 'Configures the Pipeline Security Engine (PSE) to monitor and secure your build process'
 author: 'InvisiRisk Security'
 branding:
   icon: 'shield'
