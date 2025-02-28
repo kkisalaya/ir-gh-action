@@ -19,14 +19,17 @@ The PSE GitHub Action performs the following steps:
 2. Sets up the PSE proxy container to monitor network traffic during the build
 3. Configures iptables rules to route HTTPS traffic through the proxy
 4. Installs necessary certificates to enable secure communication
-5. Runs your build steps with the proxy in place
-6. Automatically cleans up after your build completes (using GitHub Actions post-action feature)
 
-The cleanup step runs at the very end of your job, after all other steps have completed, ensuring that the PSE proxy captures all relevant activity during your build process.
+After your build is complete, you need to run the cleanup action to:
+1. Send the end signal to the InvisiRisk API
+2. Display the container logs
+3. Clean up the PSE container and related resources
 
 ## Usage
 
 ### Basic Example
+
+Add the PSE GitHub Action to your workflow:
 
 ```yaml
 name: Build NPM Package
@@ -46,6 +49,7 @@ jobs:
         node-version: [18.x]
     steps:
     - name: Setup PSE
+      id: pse-setup
       uses: kkisalaya/ir-gh-action@v0.14
       with:
         api_url: 'https://app.invisirisk.com'
@@ -74,9 +78,18 @@ jobs:
       run: |
         npm run build --if-present
         npm test
+        
+    - name: Cleanup PSE
+      if: always()
+      uses: kkisalaya/ir-gh-action/cleanup-action@v0.14
+      with:
+        api_url: 'https://app.invisirisk.com'
+        app_token: ${{ secrets.INVISIRISK_TOKEN }}
+        portal_url: 'https://app.invisirisk.com'
+        scan_id: ${{ env.SCAN_ID }}
 ```
 
-The PSE proxy will automatically be set up before your build steps and cleaned up after all steps have completed.
+The PSE proxy will be set up before your build steps and cleaned up after all steps have completed. The `if: always()` condition ensures that cleanup happens even if previous steps fail.
 
 ### With Debug Mode
 
