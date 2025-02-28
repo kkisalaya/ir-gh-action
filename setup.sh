@@ -515,6 +515,15 @@ register_cleanup() {
   if [ -n "$GITHUB_ENV" ]; then
     log "Setting GITHUB_CLEANUP environment variable"
     echo "GITHUB_CLEANUP=${ACTION_PATH}/cleanup.sh" >> "$GITHUB_ENV"
+    
+    # Ensure SCAN_ID is available for the post-action step
+    if [ -n "$SCAN_ID" ]; then
+      log "Setting SCAN_ID environment variable for post-action step"
+      echo "SCAN_ID=$SCAN_ID" >> "$GITHUB_ENV"
+    else
+      log "WARNING: SCAN_ID is not set, post-action step may not work correctly"
+    fi
+    
     log "Cleanup script registered at: ${ACTION_PATH}/cleanup.sh"
   else
     log "GITHUB_ENV is not set, skipping cleanup registration"

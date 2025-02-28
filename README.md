@@ -11,35 +11,72 @@ The PSE GitHub Action helps you secure your software supply chain by monitoring 
 - **Compliance Reporting**: Generate detailed reports for audit and compliance purposes
 - **Minimal Performance Impact**: Optimized for speed and reliability
 
+## How It Works
+
+The PSE GitHub Action performs the following steps:
+
+1. Creates a scan object in the InvisiRisk Portal to track the build session
+2. Sets up the PSE proxy container to monitor network traffic during the build
+3. Configures iptables rules to route HTTPS traffic through the proxy
+4. Installs necessary certificates to enable secure communication
+5. Runs your build steps with the proxy in place
+6. Automatically cleans up after your build completes (using GitHub Actions post-action feature)
+
+The cleanup step runs at the very end of your job, after all other steps have completed, ensuring that the PSE proxy captures all relevant activity during your build process.
+
 ## Usage
 
 ### Basic Example
 
 ```yaml
-name: Build with PSE Security
-
+name: Build NPM Package
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    strategy:
+      matrix:
+        node-version: [18.x]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+    - name: Setup PSE
+      uses: kkisalaya/ir-gh-action@v0.14
+      with:
+        api_url: 'https://app.invisirisk.com'
+        app_token: ${{ secrets.INVISIRISK_TOKEN }}
+        portal_url: 'https://app.invisirisk.com'
+        
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y curl wget git
+        
+    - name: Checkout the code
+      uses: actions/checkout@v3
       
-      - name: Setup PSE Security Proxy
-        uses: ir-gh-action@v1
-        with:
-          api_url: 'https://your-api-url.com'
-          app_token: ${{ secrets.INVISIRISK_TOKEN }}
-          portal_url: 'https://your-portal-url.com'
-      
-      # Your build steps go here
-      - name: Build application
-        run: |
-          npm install
-          npm run build
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        
+    - name: Install dependencies
+      run: |
+        npm install
+        npm ci
+        
+    - name: Build and Test
+      run: |
+        npm run build --if-present
+        npm test
 ```
 
-That's it! The PSE Security Proxy GitHub Action handles all the complexity internally, allowing you to focus on your build process while ensuring security and compliance.
+The PSE proxy will automatically be set up before your build steps and cleaned up after all steps have completed.
 
 ### With Debug Mode
 
