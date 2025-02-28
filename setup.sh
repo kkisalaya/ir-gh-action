@@ -204,6 +204,41 @@ setup_dependencies() {
   log "Dependencies installed successfully"
 }
 
+# Function to stream container logs
+stream_container_logs() {
+  local container_name="$1"
+  local log_prefix="[$container_name]"
+  
+  log "Starting log streaming for container: $container_name"
+  
+  # Check if in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping log streaming"
+    return 0
+  fi
+  
+  # Check if container exists
+  if ! sudo docker ps -q -f name="$container_name" > /dev/null 2>&1; then
+    log "ERROR: Container $container_name not found, cannot stream logs"
+    return 1
+  fi
+  
+  # Start log streaming in background
+  (
+    # Use docker logs with follow option
+    sudo docker logs -f "$container_name" 2>&1 | while read -r line; do
+      echo "$log_prefix $line"
+    done
+  ) &
+  
+  # Save the PID of the background process
+  LOG_STREAM_PID=$!
+  log "Log streaming started with PID: $LOG_STREAM_PID"
+  
+  # Export the PID so it can be terminated in cleanup
+  export LOG_STREAM_PID
+}
+
 # Function to pull and start PSE container
 pull_and_start_pse_container() {
   log "Setting up PSE container"
@@ -310,6 +345,9 @@ pull_and_start_pse_container() {
   # Get container IP for iptables configuration
   PSE_IP=$(sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse)
   export PSE_IP="$PSE_IP"
+  
+  # Start streaming logs from the PSE container
+  stream_container_logs "pse"
   
   log "PSE container started with IP: $PSE_IP"
 }
@@ -543,6 +581,17 @@ main() {
   register_cleanup
   
   log "PSE GitHub Action setup completed successfully"
+  
+  # If we're in debug mode, display container status
+  if [ "$DEBUG" = "true" ]; then
+    log "Container status:"
+    sudo docker ps -a | grep pse || true
+    log "Container logs (last 10 lines):"
+    sudo docker logs --tail 10 pse 2>&1 || true
+  fi
+  
+  # Note: Log streaming continues in the background
+  log "Log streaming from PSE container is active. See [pse] prefixed logs for container output."
 }
 
 # Execute main function

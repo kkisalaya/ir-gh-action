@@ -177,6 +177,19 @@ signal_build_end() {
   return 0
 }
 
+# Function to stop log streaming
+stop_log_streaming() {
+  log "Stopping log streaming"
+  
+  # Check if LOG_STREAM_PID is set
+  if [ -n "$LOG_STREAM_PID" ]; then
+    log "Terminating log streaming process with PID: $LOG_STREAM_PID"
+    kill -TERM "$LOG_STREAM_PID" >/dev/null 2>&1 || true
+  else
+    log "No log streaming process to terminate"
+  fi
+}
+
 # Function to clean up iptables rules
 cleanup_iptables() {
   log "Cleaning up iptables rules"
@@ -207,6 +220,9 @@ cleanup_pse_container() {
     log "Running in TEST_MODE, skipping PSE container cleanup"
     return 0
   fi
+  
+  # Stop log streaming first
+  stop_log_streaming
   
   # Stop and remove PSE container if it exists
   if sudo docker ps -a | grep -q pse; then
