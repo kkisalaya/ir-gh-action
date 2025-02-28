@@ -385,6 +385,43 @@ setup_certificates() {
   log "Certificates configured successfully"
 }
 
+# Function to URL encode a string
+url_encode() {
+  local string="$1"
+  local encoded=""
+  local i
+  for (( i=0; i<${#string}; i++ )); do
+    local c="${string:$i:1}"
+    case "$c" in
+      [a-zA-Z0-9.~_-]) encoded="$encoded$c" ;;
+      *) encoded="$encoded$(printf '%%%02X' "'$c")" ;;
+    esac
+  done
+  echo "$encoded"
+}
+
+# Function to validate scan ID
+validate_scan_id() {
+  if [ -z "$SCAN_ID" ]; then
+    log "ERROR: No SCAN_ID available"
+    return 1
+  fi
+  
+  if [ "$SCAN_ID" = "null" ] || [ "$SCAN_ID" = "undefined" ]; then
+    log "ERROR: Invalid SCAN_ID: $SCAN_ID"
+    return 1
+  fi
+  
+  # Check if SCAN_ID is a valid UUID (basic check)
+  if ! echo "$SCAN_ID" | grep -E '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' >/dev/null; then
+    log "WARNING: SCAN_ID does not appear to be a valid UUID: $SCAN_ID"
+    # Continue anyway as it might be a different format
+  fi
+  
+  log "SCAN_ID validation passed: $SCAN_ID"
+  return 0
+}
+
 # Function to signal build start
 signal_build_start() {
   log "Signaling build start"
@@ -395,22 +432,76 @@ signal_build_start() {
     return 0
   fi
   
-  # Build URL parameters
-  BASE_URL="${GITHUB_SERVER_URL}/"
-  REPO="${GITHUB_REPOSITORY}"
-  BUILD_URL="${BASE_URL}${REPO}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}"
-  
-  # Send start signal to PSE
-  RESPONSE=$(curl -L -s -o /dev/null -w "%{http_code}" -X POST "https://pse.invisirisk.com/start" \
-    -H "Content-Type: application/x-www-form-urlencoded" \
-    -d "builder=github&id=${SCAN_ID}&build_id=${GITHUB_RUN_ID}&build_url=${BUILD_URL}&project=${GITHUB_REPOSITORY}&workflow=${GITHUB_WORKFLOW} - ${GITHUB_JOB}&builder_url=${BASE_URL}&scm=git&scm_commit=${GITHUB_SHA}&scm_branch=${GITHUB_REF_NAME}&scm_origin=${BASE_URL}${REPO}")
-  
-  if [ "$RESPONSE" != "200" ]; then
-    log "ERROR: Failed to signal build start. Status: $RESPONSE"
-    exit 1
+  # Validate scan ID
+  if ! validate_scan_id; then
+    log "WARNING: Cannot signal build start due to invalid SCAN_ID"
+    log "Continuing anyway..."
+    return 0
   fi
   
-  log "Build start signaled successfully"
+  # Use PSE endpoint directly
+  BASE_URL="https://pse.invisirisk.com"
+  
+  # Get Git information with fallbacks for CI environment
+  git_url=$(git config --get remote.origin.url 2>/dev/null || echo "https://github.com/$GITHUB_REPOSITORY.git")
+  git_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "${GITHUB_REF#refs/heads/}")
+  git_commit=$(git rev-parse HEAD 2>/dev/null || echo "$GITHUB_SHA")
+  repo_name=$(basename -s .git "$git_url" 2>/dev/null || echo "$GITHUB_REPOSITORY")
+  
+  # Build URL for the GitHub run
+  build_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+  
+  # Build parameters
+  params="builder=$(url_encode "github")"
+  params="${params}&id=$(url_encode "$SCAN_ID")"
+  params="${params}&build_id=$(url_encode "$GITHUB_RUN_ID")"
+  params="${params}&build_url=$(url_encode "$build_url")"
+  params="${params}&project=$(url_encode "${repo_name:-$GITHUB_REPOSITORY}")"
+  params="${params}&workflow=$(url_encode "$GITHUB_WORKFLOW")"
+  params="${params}&builder_url=$(url_encode "$GITHUB_SERVER_URL")"
+  params="${params}&scm=$(url_encode "git")"
+  params="${params}&scm_commit=$(url_encode "$git_commit")"
+  params="${params}&scm_branch=$(url_encode "$git_branch")"
+  params="${params}&scm_origin=$(url_encode "$git_url")"
+  
+  log "Sending start signal to PSE with parameters: $params"
+  
+  # Send request with retries
+  MAX_RETRIES=3
+  RETRY_DELAY=2
+  ATTEMPT=1
+  
+  while [ $ATTEMPT -le $MAX_RETRIES ]; do
+    log "Sending start signal, attempt $ATTEMPT of $MAX_RETRIES"
+    
+    RESPONSE=$(curl -X POST "${BASE_URL}/start" \
+      -H 'Content-Type: application/x-www-form-urlencoded' \
+      -H 'User-Agent: pse-action' \
+      -d "$params" \
+      -k --tlsv1.2 --insecure \
+      --retry 3 --retry-delay 2 --max-time 10 \
+      -s -w "\n%{http_code}" 2>&1)
+    
+    HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+    RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
+    
+    if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+      log "Start signal sent successfully (HTTP $HTTP_CODE)"
+      log "Response: $RESPONSE_BODY"
+      return 0
+    else
+      log "Failed to send start signal (HTTP $HTTP_CODE)"
+      log "Response: $RESPONSE_BODY"
+      log "Retrying in $RETRY_DELAY seconds..."
+      sleep $RETRY_DELAY
+      RETRY_DELAY=$((RETRY_DELAY * 2))
+      ATTEMPT=$((ATTEMPT + 1))
+    fi
+  done
+  
+  log "WARNING: Failed to send start signal after $MAX_RETRIES attempts"
+  log "Continuing anyway..."
+  return 0
 }
 
 # Main execution
