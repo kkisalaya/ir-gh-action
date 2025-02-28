@@ -84,118 +84,38 @@ validate_scan_id() {
 
 # Function to signal build end
 signal_build_end() {
-  log "Signaling build end"
+  log "Signaling build end to InvisiRisk API"
   
   # Check if in test mode
   if [ "$TEST_MODE" = "true" ]; then
-    log "Running in TEST_MODE, skipping build end signal"
+    log "Running in TEST_MODE, skipping API call"
     return 0
   fi
   
-  # Skip if using dummy SCAN_ID
-  if [ "$SCAN_ID" = "cleanup_only" ]; then
-    log "Skipping build end signal as no valid SCAN_ID is available"
-    return 0
+  # Check if SCAN_ID is set
+  if [ -z "$SCAN_ID" ]; then
+    log "ERROR: SCAN_ID is not set, cannot signal build end"
+    return 1
   fi
   
-  # Validate scan ID
-  if ! validate_scan_id; then
-    log "WARNING: Cannot signal build end due to invalid SCAN_ID"
-    log "Continuing anyway..."
-    return 0
+  # Make API call to signal build end
+  END_RESPONSE=$(curl -L -s -X POST "$API_URL/utilityapi/v1/scan/$SCAN_ID/end" \
+    -H "Content-Type: application/json" \
+    -d "{\"api_key\": \"$APP_TOKEN\"}")
+  
+  # Print response for debugging (masking sensitive data)
+  if [ "$DEBUG" = "true" ]; then
+    log "API Response (masked): $(echo "$END_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')"
   fi
   
-  # Use PSE endpoint directly
-  BASE_URL="https://pse.invisirisk.com"
-  
-  # Get Git information with fallbacks for CI environment
-  git_url=$(git config --get remote.origin.url 2>/dev/null || echo "https://github.com/$GITHUB_REPOSITORY.git")
-  git_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "${GITHUB_REF#refs/heads/}")
-  git_commit=$(git rev-parse HEAD 2>/dev/null || echo "$GITHUB_SHA")
-  repo_name=$(basename -s .git "$git_url" 2>/dev/null || echo "$GITHUB_REPOSITORY")
-  
-  # Build URL for the GitHub run
-  build_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-  
-  # Determine build status
-  build_status="success"
-  if [ "$GITHUB_JOB_STATUS" = "failure" ]; then
-    build_status="failure"
+  # Check if the response contains an error message
+  if echo "$END_RESPONSE" | grep -q '"error"'; then
+    log "ERROR: Failed to signal build end: $(echo "$END_RESPONSE" | grep -o '"error":"[^"]*' | cut -d'"' -f4)"
+    return 1
   fi
   
-  # Build parameters
-  params="builder=$(url_encode "github")"
-  params="${params}&id=$(url_encode "$SCAN_ID")"
-  params="${params}&build_id=$(url_encode "$GITHUB_RUN_ID")"
-  params="${params}&build_url=$(url_encode "$build_url")"
-  params="${params}&project=$(url_encode "${repo_name:-$GITHUB_REPOSITORY}")"
-  params="${params}&workflow=$(url_encode "$GITHUB_WORKFLOW")"
-  params="${params}&builder_url=$(url_encode "$GITHUB_SERVER_URL")"
-  params="${params}&scm=$(url_encode "git")"
-  params="${params}&scm_commit=$(url_encode "$git_commit")"
-  params="${params}&scm_branch=$(url_encode "$git_branch")"
-  params="${params}&scm_origin=$(url_encode "$git_url")"
-  params="${params}&status=$(url_encode "$build_status")"
-  
-  log "Sending end signal to PSE with parameters: $params"
-  
-  # Send request with retries
-  MAX_RETRIES=3
-  RETRY_DELAY=2
-  ATTEMPT=1
-  
-  while [ $ATTEMPT -le $MAX_RETRIES ]; do
-    log "Sending end signal, attempt $ATTEMPT of $MAX_RETRIES"
-    
-    RESPONSE=$(curl -X POST "${BASE_URL}/end" \
-      -H 'Content-Type: application/x-www-form-urlencoded' \
-      -H 'User-Agent: pse-action' \
-      -d "$params" \
-      -k --tlsv1.2 --insecure \
-      --retry 3 --retry-delay 2 --max-time 10 \
-      -s -w "\n%{http_code}" 2>&1)
-    
-    HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-    RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
-    
-    if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-      log "End signal sent successfully (HTTP $HTTP_CODE)"
-      log "Response: $RESPONSE_BODY"
-      return 0
-    else
-      log "Failed to send end signal (HTTP $HTTP_CODE)"
-      log "Response: $RESPONSE_BODY"
-      log "Retrying in $RETRY_DELAY seconds..."
-      sleep $RETRY_DELAY
-      RETRY_DELAY=$((RETRY_DELAY * 2))
-      ATTEMPT=$((ATTEMPT + 1))
-    fi
-  done
-  
-  log "WARNING: Failed to send end signal after $MAX_RETRIES attempts"
-  log "Continuing anyway..."
+  log "Build end signaled successfully"
   return 0
-}
-
-# Function to clean up iptables rules
-cleanup_iptables() {
-  log "Cleaning up iptables rules"
-  
-  # Check if in test mode
-  if [ "$TEST_MODE" = "true" ]; then
-    log "Running in TEST_MODE, skipping iptables cleanup"
-    return 0
-  fi
-  
-  # Remove iptables rules
-  if sudo iptables -t nat -L pse >/dev/null 2>&1; then
-    sudo iptables -t nat -D OUTPUT -j pse 2>/dev/null || true
-    sudo iptables -t nat -F pse 2>/dev/null || true
-    sudo iptables -t nat -X pse 2>/dev/null || true
-    log "iptables rules removed successfully"
-  else
-    log "No iptables rules to clean up"
-  fi
 }
 
 # Function to display container logs
@@ -253,6 +173,27 @@ cleanup_pse_container() {
   fi
 }
 
+# Function to clean up iptables rules
+cleanup_iptables() {
+  log "Cleaning up iptables rules"
+  
+  # Check if in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping iptables cleanup"
+    return 0
+  fi
+  
+  # Remove iptables rules
+  if sudo iptables -t nat -L pse >/dev/null 2>&1; then
+    sudo iptables -t nat -D OUTPUT -j pse 2>/dev/null || true
+    sudo iptables -t nat -F pse 2>/dev/null || true
+    sudo iptables -t nat -X pse 2>/dev/null || true
+    log "iptables rules removed successfully"
+  else
+    log "No iptables rules to clean up"
+  fi
+}
+
 # Function to clean up certificates
 cleanup_certificates() {
   log "Cleaning up certificates"
@@ -280,10 +221,18 @@ cleanup_certificates() {
 main() {
   log "Starting PSE GitHub Action cleanup"
   
+  # Validate environment variables
   validate_env_vars
+  
+  # Display container logs before cleanup
+  display_container_logs "pse"
+  
+  # Signal build end to InvisiRisk API
   signal_build_end
-  cleanup_iptables
+  
+  # Clean up resources
   cleanup_pse_container
+  cleanup_iptables
   cleanup_certificates
   
   log "PSE GitHub Action cleanup completed successfully"
