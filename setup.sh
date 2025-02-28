@@ -80,8 +80,8 @@ setup_dependencies() {
   else
     # Debian/Ubuntu
     log "Detected Debian/Ubuntu"
-    apt-get update
-    apt-get install -y iptables ca-certificates git curl
+    sudo apt-get update
+    sudo apt-get install -y iptables ca-certificates git curl
   fi
   
   log "Dependencies installed successfully"
@@ -98,7 +98,7 @@ pull_and_start_pse_container() {
   
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Logging in to ECR, attempt $ATTEMPT of $MAX_RETRIES"
-    if echo "$ECR_TOKEN" | docker login --username "$ECR_USERNAME" --password-stdin "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com"; then
+    if echo "$ECR_TOKEN" | sudo docker login --username "$ECR_USERNAME" --password-stdin "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com"; then
       log "ECR login successful"
       break
     else
@@ -119,7 +119,7 @@ pull_and_start_pse_container() {
   
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Pulling PSE container, attempt $ATTEMPT of $MAX_RETRIES"
-    if docker pull "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com/pse:latest"; then
+    if sudo docker pull "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com/pse:latest"; then
       log "PSE container pulled successfully"
       break
     else
@@ -137,7 +137,7 @@ pull_and_start_pse_container() {
   
   # Start PSE container with required environment variables
   log "Starting PSE container"
-  docker run -d --name pse \
+  sudo docker run -d --name pse \
     -e PSE_DEBUG_FLAG="--alsologtostderr" \
     -e POLICY_LOG="t" \
     -e INVISIRISK_JWT_TOKEN="$APP_TOKEN" \
@@ -146,7 +146,7 @@ pull_and_start_pse_container() {
     "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com/pse:latest"
   
   # Get container IP for iptables configuration
-  PSE_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse)
+  PSE_IP=$(sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse)
   export PSE_IP="$PSE_IP"
   
   log "PSE container started with IP: $PSE_IP"
@@ -157,11 +157,11 @@ setup_iptables() {
   log "Setting up iptables rules"
   
   # Configure iptables to redirect HTTPS traffic
-  iptables -t nat -N pse
-  iptables -t nat -A OUTPUT -j pse
+  sudo iptables -t nat -N pse
+  sudo iptables -t nat -A OUTPUT -j pse
   
   # Redirect HTTPS traffic to PSE
-  iptables -t nat -A pse -p tcp -m tcp --dport 443 -j DNAT --to-destination ${PSE_IP}:12345
+  sudo iptables -t nat -A pse -p tcp -m tcp --dport 443 -j DNAT --to-destination ${PSE_IP}:12345
   
   log "iptables rules configured successfully"
 }
@@ -177,7 +177,8 @@ setup_ca_certificates() {
   
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Fetching CA certificate, attempt $ATTEMPT of $MAX_RETRIES"
-    if curl -L -k -s -o /etc/ssl/certs/pse.pem https://pse.invisirisk.com/ca; then
+    if curl -L -k -s -o /tmp/pse.pem https://pse.invisirisk.com/ca; then
+      sudo mv /tmp/pse.pem /etc/ssl/certs/pse.pem
       log "CA certificate successfully retrieved"
       break
     else
@@ -194,7 +195,7 @@ setup_ca_certificates() {
   fi
   
   # Update CA certificates
-  update-ca-certificates
+  sudo update-ca-certificates
   
   # Configure Git to use our CA
   git config --global http.sslCAInfo /etc/ssl/certs/pse.pem

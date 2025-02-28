@@ -96,10 +96,10 @@ cleanup_iptables() {
   log "Cleaning up iptables rules"
   
   # Remove iptables rules
-  if iptables -t nat -L pse >/dev/null 2>&1; then
-    iptables -t nat -D OUTPUT -j pse 2>/dev/null || true
-    iptables -t nat -F pse 2>/dev/null || true
-    iptables -t nat -X pse 2>/dev/null || true
+  if sudo iptables -t nat -L pse >/dev/null 2>&1; then
+    sudo iptables -t nat -D OUTPUT -j pse 2>/dev/null || true
+    sudo iptables -t nat -F pse 2>/dev/null || true
+    sudo iptables -t nat -X pse 2>/dev/null || true
     log "iptables rules removed successfully"
   else
     log "No iptables rules to clean up"
@@ -111,9 +111,9 @@ cleanup_pse_container() {
   log "Cleaning up PSE container"
   
   # Stop and remove PSE container if it exists
-  if docker ps -a | grep -q pse; then
-    docker stop pse 2>/dev/null || true
-    docker rm pse 2>/dev/null || true
+  if sudo docker ps -a | grep -q pse; then
+    sudo docker stop pse 2>/dev/null || true
+    sudo docker rm pse 2>/dev/null || true
     log "PSE container stopped and removed"
   else
     log "No PSE container to clean up"
@@ -126,8 +126,8 @@ cleanup_certificates() {
   
   # Remove PSE certificate
   if [ -f /etc/ssl/certs/pse.pem ]; then
-    rm -f /etc/ssl/certs/pse.pem
-    update-ca-certificates --fresh
+    sudo rm -f /etc/ssl/certs/pse.pem
+    sudo update-ca-certificates --fresh
     log "PSE certificate removed"
   else
     log "No PSE certificate to clean up"
