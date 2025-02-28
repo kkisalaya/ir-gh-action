@@ -49,6 +49,12 @@ validate_env_vars() {
 signal_build_end() {
   log "Signaling build end"
   
+  # Check if in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping build end signal"
+    return 0
+  fi
+  
   # Skip if using dummy SCAN_ID
   if [ "$SCAN_ID" = "cleanup_only" ]; then
     log "Skipping build end signal as no valid SCAN_ID is available"
@@ -95,6 +101,12 @@ signal_build_end() {
 cleanup_iptables() {
   log "Cleaning up iptables rules"
   
+  # Check if in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping iptables cleanup"
+    return 0
+  fi
+  
   # Remove iptables rules
   if sudo iptables -t nat -L pse >/dev/null 2>&1; then
     sudo iptables -t nat -D OUTPUT -j pse 2>/dev/null || true
@@ -110,6 +122,12 @@ cleanup_iptables() {
 cleanup_pse_container() {
   log "Cleaning up PSE container"
   
+  # Check if in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping PSE container cleanup"
+    return 0
+  fi
+  
   # Stop and remove PSE container if it exists
   if sudo docker ps -a | grep -q pse; then
     sudo docker stop pse 2>/dev/null || true
@@ -123,6 +141,12 @@ cleanup_pse_container() {
 # Function to clean up certificates
 cleanup_certificates() {
   log "Cleaning up certificates"
+  
+  # Check if in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping certificate cleanup"
+    return 0
+  fi
   
   # Remove PSE certificate
   if [ -f /etc/ssl/certs/pse.pem ]; then

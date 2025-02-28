@@ -42,11 +42,76 @@ validate_env_vars() {
 get_ecr_credentials() {
   log "Obtaining ECR credentials from $API_URL"
   
-  # Fetch ECR details
-  ECR_RESPONSE=$(curl -L -s -X GET "$API_URL/utilityapi/v1/registry?api_key=$APP_TOKEN")
+  # Check if in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, using dummy ECR credentials"
+    export ECR_USERNAME="test_user"
+    export ECR_TOKEN="test_token"
+    export ECR_REGION="us-east-1"
+    export ECR_REGISTRY_ID="123456789012"
+    log "Dummy ECR credentials set"
+    return 0
+  fi
   
+  # Log the API endpoint being called
+  log "Calling API endpoint: $API_URL/utilityapi/v1/registry with API key"
+  
+  # Create temp file for headers
+  HEADER_FILE=$(mktemp)
+  
+  # Fetch ECR details with verbose output
+  log "Executing curl command..."
+  if [ "$DEBUG" = "true" ]; then
+    # In debug mode, use verbose output
+    log "Running in debug mode with verbose curl output"
+    ECR_RESPONSE=$(curl -L -v -D "$HEADER_FILE" -X GET "$API_URL/utilityapi/v1/registry?api_key=$APP_TOKEN" 2>&1 | tee /tmp/curl_debug.log)
+    log "Full curl debug output saved to /tmp/curl_debug.log"
+  else
+    ECR_RESPONSE=$(curl -L -s -D "$HEADER_FILE" -X GET "$API_URL/utilityapi/v1/registry?api_key=$APP_TOKEN")
+  fi
+  
+  # Log HTTP status and headers
+  log "HTTP Response Headers:"
+  log "$(cat "$HEADER_FILE" | grep -v "Authorization")"
+  
+  # Remove temp file
+  rm "$HEADER_FILE"
+  
+  # Log the response (masked for security)
+  log "API Response (masked): $(echo "$ECR_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')"
+  
+  # Check if the response contains an error message
+  if echo "$ECR_RESPONSE" | grep -q '"error"'; then
+    log "Error received from API: $(echo "$ECR_RESPONSE" | grep -o '"error":"[^"]*' | cut -d'"' -f4)"
+    exit 1
+  fi
+  
+  # Check if response is empty or not JSON
+  if [ -z "$ECR_RESPONSE" ]; then
+    log "ERROR: Empty response received from API"
+    exit 1
+  fi
+  
+  if ! echo "$ECR_RESPONSE" | grep -q '{'; then
+    log "ERROR: Invalid JSON response received from API"
+    log "Response: $ECR_RESPONSE"
+    exit 1
+  fi
+  
+  log "Attempting to extract data field from response"
+  # Extract and log the data field (if present)
+  DATA_FIELD=$(echo "$ECR_RESPONSE" | grep -o '"data":"[^"]*' | cut -d'"' -f4)
+  if [ -z "$DATA_FIELD" ]; then
+    log "ERROR: No data field found in response"
+    exit 1
+  fi
+  
+  log "Data field found, attempting to decode"
   # Decode base64 token
-  DECODED_TOKEN=$(echo "$ECR_RESPONSE" | grep -o '"data":"[^"]*' | cut -d'"' -f4 | base64 -d)
+  DECODED_TOKEN=$(echo "$DATA_FIELD" | base64 -d)
+  
+  # Log decoded token structure (without sensitive info)
+  log "Decoded token structure: $(echo "$DECODED_TOKEN" | sed 's/"password":"[^"]*"/"password":"***"/g')"
   
   # Extract ECR credentials
   ECR_USERNAME=$(echo "$DECODED_TOKEN" | grep -o '"username":"[^"]*' | cut -d'"' -f4)
@@ -54,8 +119,16 @@ get_ecr_credentials() {
   ECR_REGION=$(echo "$DECODED_TOKEN" | grep -o '"region":"[^"]*' | cut -d'"' -f4)
   ECR_REGISTRY_ID=$(echo "$DECODED_TOKEN" | grep -o '"registry_id":"[^"]*' | cut -d'"' -f4)
   
+  # Log extracted values (masking sensitive data)
+  log "Extracted username: ${ECR_USERNAME:0:3}***"
+  log "Extracted token: ***"
+  log "Extracted region: $ECR_REGION"
+  log "Extracted registry ID: $ECR_REGISTRY_ID"
+  
   if [ -z "$ECR_USERNAME" ] || [ -z "$ECR_TOKEN" ]; then
     log "ERROR: Failed to obtain ECR credentials"
+    log "Username empty: $([ -z "$ECR_USERNAME" ] && echo "Yes" || echo "No")"
+    log "Token empty: $([ -z "$ECR_TOKEN" ] && echo "Yes" || echo "No")"
     exit 1
   fi
   
@@ -89,7 +162,15 @@ setup_dependencies() {
 
 # Function to pull and start PSE container
 pull_and_start_pse_container() {
-  log "Pulling and starting PSE container"
+  log "Setting up PSE container"
+  
+  # Check if in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping PSE container setup"
+    # Set a dummy PSE_IP for iptables configuration
+    export PSE_IP="127.0.0.1"
+    return 0
+  fi
   
   # Login to ECR with retry mechanism
   MAX_RETRIES=3
@@ -156,6 +237,12 @@ pull_and_start_pse_container() {
 setup_iptables() {
   log "Setting up iptables rules"
   
+  # Check if in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping iptables setup"
+    return 0
+  fi
+  
   # Configure iptables to redirect HTTPS traffic
   sudo iptables -t nat -N pse
   sudo iptables -t nat -A OUTPUT -j pse
@@ -166,9 +253,15 @@ setup_iptables() {
   log "iptables rules configured successfully"
 }
 
-# Function to set up CA certificates
-setup_ca_certificates() {
-  log "Setting up CA certificates"
+# Function to set up certificates
+setup_certificates() {
+  log "Setting up certificates"
+  
+  # Check if in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping certificate setup"
+    return 0
+  fi
   
   # Fetch CA certificate from PSE with retries
   MAX_RETRIES=5
@@ -208,12 +301,18 @@ setup_ca_certificates() {
   echo "NODE_EXTRA_CA_CERTS=/etc/ssl/certs/pse.pem" >> $GITHUB_ENV
   echo "REQUESTS_CA_BUNDLE=/etc/ssl/certs/pse.pem" >> $GITHUB_ENV
   
-  log "CA certificates configured successfully"
+  log "Certificates configured successfully"
 }
 
 # Function to signal build start
 signal_build_start() {
   log "Signaling build start"
+  
+  # Check if in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping build start signal"
+    return 0
+  fi
   
   # Build URL parameters
   BASE_URL="${GITHUB_SERVER_URL}/"
@@ -242,7 +341,7 @@ main() {
   get_ecr_credentials
   pull_and_start_pse_container
   setup_iptables
-  setup_ca_certificates
+  setup_certificates
   signal_build_start
   
   log "PSE GitHub Action setup completed successfully"

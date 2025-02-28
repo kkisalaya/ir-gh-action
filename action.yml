@@ -19,6 +19,10 @@ inputs:
     description: 'Enable debug mode for verbose logging'
     required: false
     default: 'false'
+  test_mode:
+    description: 'Enable test mode to bypass API calls for testing'
+    required: false
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -72,6 +76,7 @@ runs:
         PORTAL_URL: ${{ inputs.portal_url }}
         SCAN_ID: ${{ env.SCAN_ID }}
         DEBUG: ${{ inputs.debug }}
+        TEST_MODE: ${{ inputs.test_mode }}
         GITHUB_TOKEN: ${{ github.token }}
     
     - name: Register cleanup
@@ -94,4 +99,5 @@ runs:
         PORTAL_URL: ${{ inputs.portal_url }}
         SCAN_ID: ${{ env.SCAN_ID }}
         DEBUG: ${{ inputs.debug }}
+        TEST_MODE: ${{ inputs.test_mode }}
         GITHUB_TOKEN: ${{ github.token }}
