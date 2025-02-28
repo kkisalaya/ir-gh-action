@@ -63,7 +63,7 @@ If you need more detailed logging, you can enable debug mode:
 | `app_token` | Authentication token for the InvisiRisk API | Yes | N/A |
 | `portal_url` | URL of the InvisiRisk Portal | Yes | N/A |
 | `debug` | Enable debug mode for verbose logging | No | `false` |
-| `test_mode` | Enable test mode to bypass API calls for testing | No | `false` |
+| `test_mode` | Enable test mode to bypass API calls and container setup for testing. Use this when you want to test the action without actually running the PSE container. | No | `false` |
 
 ## Prerequisites
 

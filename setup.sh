@@ -216,9 +216,11 @@ pull_and_start_pse_container() {
     return 0
   fi
   
-  # Login to ECR with retry mechanism
+  # Set retry parameters
   MAX_RETRIES=3
   RETRY_DELAY=5
+  
+  # Login to ECR with retry mechanism
   ATTEMPT=1
   
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
@@ -227,7 +229,7 @@ pull_and_start_pse_container() {
       log "ECR login successful"
       break
     else
-      log "Failed to login to ECR, retrying in $RETRY_DELAY seconds..."
+      log "ECR login failed, retrying in $RETRY_DELAY seconds..."
       sleep $RETRY_DELAY
       RETRY_DELAY=$((RETRY_DELAY * 2))
       ATTEMPT=$((ATTEMPT + 1))
@@ -239,24 +241,59 @@ pull_and_start_pse_container() {
     exit 1
   fi
   
-  # Pull PSE container with retry mechanism
-  ATTEMPT=1
+  # Define the correct image path
+  PRIMARY_IMAGE="$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com/invisirisk/pse-proxy:latest"
+  FALLBACK_IMAGES=(
+    "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com/pse:latest"
+    "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com/pse-proxy:latest"
+    "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com/invisirisk/pse:latest"
+  )
   
+  # Try primary image first
+  log "Trying primary PSE image: $PRIMARY_IMAGE"
+  PSE_IMAGE="$PRIMARY_IMAGE"
+  
+  ATTEMPT=1
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Pulling PSE container, attempt $ATTEMPT of $MAX_RETRIES"
-    if sudo docker pull "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com/pse:latest"; then
+    PULL_OUTPUT=$(sudo docker pull "$PSE_IMAGE" 2>&1)
+    PULL_STATUS=$?
+    
+    if [ $PULL_STATUS -eq 0 ]; then
       log "PSE container pulled successfully"
       break
     else
-      log "Failed to pull PSE container, retrying in $RETRY_DELAY seconds..."
+      log "Failed to pull PSE container (exit code: $PULL_STATUS)"
+      log "Error output: $PULL_OUTPUT"
+      
+      # If we've exhausted retries for this image, try fallbacks
+      if [ $ATTEMPT -eq $MAX_RETRIES ] && [ ${#FALLBACK_IMAGES[@]} -gt 0 ]; then
+        FALLBACK_IMAGE=${FALLBACK_IMAGES[0]}
+        FALLBACK_IMAGES=("${FALLBACK_IMAGES[@]:1}")
+        log "Trying fallback PSE image: $FALLBACK_IMAGE"
+        PSE_IMAGE="$FALLBACK_IMAGE"
+        ATTEMPT=1
+        continue
+      fi
+      
+      log "Retrying in $RETRY_DELAY seconds..."
       sleep $RETRY_DELAY
       RETRY_DELAY=$((RETRY_DELAY * 2))
       ATTEMPT=$((ATTEMPT + 1))
     fi
   done
   
-  if [ $ATTEMPT -gt $MAX_RETRIES ]; then
-    log "ERROR: Failed to pull PSE container after $MAX_RETRIES attempts"
+  if [ $ATTEMPT -gt $MAX_RETRIES ] && [ ${#FALLBACK_IMAGES[@]} -eq 0 ]; then
+    log "ERROR: Failed to pull PSE container after trying all repository paths"
+    log "Last error: $PULL_OUTPUT"
+    
+    # Try to get more information about the repository
+    log "Attempting to get more information about the repository..."
+    sudo docker logout "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com" || true
+    echo "$ECR_TOKEN" | sudo docker login --username "$ECR_USERNAME" --password-stdin "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com"
+    REPO_INFO=$(aws ecr describe-repositories --registry-id "$ECR_REGISTRY_ID" --region "$ECR_REGION" 2>&1 || echo "AWS CLI not available or not configured")
+    log "Repository information: $REPO_INFO"
+    
     exit 1
   fi
   
@@ -268,7 +305,7 @@ pull_and_start_pse_container() {
     -e INVISIRISK_JWT_TOKEN="$APP_TOKEN" \
     -e INVISIRISK_PORTAL="$PORTAL_URL" \
     -e GITHUB_TOKEN="$GITHUB_TOKEN" \
-    "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com/pse:latest"
+    "$PSE_IMAGE"
   
   # Get container IP for iptables configuration
   PSE_IP=$(sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse)
