@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v3
       
       - name: Setup PSE Security Proxy
-        uses: invisirisk/pse-action@v1
+        uses: ir-gh-action@v1
         with:
           api_url: 'https://your-api-url.com'
           app_token: ${{ secrets.INVISIRISK_TOKEN }}
@@ -47,7 +47,7 @@ If you need more detailed logging, you can enable debug mode:
 
 ```yaml
 - name: Setup PSE Security Proxy
-  uses: invisirisk/pse-action@v1
+  uses: ir-gh-action@v1
   with:
     api_url: 'https://your-api-url.com'
     app_token: ${{ secrets.INVISIRISK_TOKEN }}
