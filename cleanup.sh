@@ -70,7 +70,7 @@ signal_build_end() {
   
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Sending build end signal, attempt $ATTEMPT of $MAX_RETRIES"
-    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "https://pse.invisirisk.com/end" \
+    RESPONSE=$(curl -L -s -o /dev/null -w "%{http_code}" -X POST "https://pse.invisirisk.com/end" \
       -H "Content-Type: application/x-www-form-urlencoded" \
       -d "build_url=${BUILD_URL}&status=${BUILD_STATUS}")
     

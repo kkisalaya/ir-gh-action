@@ -29,7 +29,7 @@ runs:
       run: |
         # Create scan object in InvisiRisk Portal
         echo "Creating scan in InvisiRisk Portal..."
-        SCAN_RESPONSE=$(curl -s -X POST "${{ inputs.api_url }}/utilityapi/v1/scan" \
+        SCAN_RESPONSE=$(curl -L -s -X POST "${{ inputs.api_url }}/utilityapi/v1/scan" \
           -H "Content-Type: application/json" \
           -d "{\"api_key\": \"${{ inputs.app_token }}\"}")
         

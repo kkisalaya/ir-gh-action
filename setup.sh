@@ -43,7 +43,7 @@ get_ecr_credentials() {
   log "Obtaining ECR credentials from $API_URL"
   
   # Fetch ECR details
-  ECR_RESPONSE=$(curl -s -X GET "$API_URL/utilityapi/v1/registry?api_key=$APP_TOKEN")
+  ECR_RESPONSE=$(curl -L -s -X GET "$API_URL/utilityapi/v1/registry?api_key=$APP_TOKEN")
   
   # Decode base64 token
   DECODED_TOKEN=$(echo "$ECR_RESPONSE" | grep -o '"data":"[^"]*' | cut -d'"' -f4 | base64 -d)
@@ -177,7 +177,7 @@ setup_ca_certificates() {
   
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Fetching CA certificate, attempt $ATTEMPT of $MAX_RETRIES"
-    if curl -k -s -o /etc/ssl/certs/pse.pem https://pse.invisirisk.com/ca; then
+    if curl -L -k -s -o /etc/ssl/certs/pse.pem https://pse.invisirisk.com/ca; then
       log "CA certificate successfully retrieved"
       break
     else
@@ -220,7 +220,7 @@ signal_build_start() {
   BUILD_URL="${BASE_URL}${REPO}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}"
   
   # Send start signal to PSE
-  RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "https://pse.invisirisk.com/start" \
+  RESPONSE=$(curl -L -s -o /dev/null -w "%{http_code}" -X POST "https://pse.invisirisk.com/start" \
     -H "Content-Type: application/x-www-form-urlencoded" \
     -d "builder=github&id=${SCAN_ID}&build_id=${GITHUB_RUN_ID}&build_url=${BUILD_URL}&project=${GITHUB_REPOSITORY}&workflow=${GITHUB_WORKFLOW} - ${GITHUB_JOB}&builder_url=${BASE_URL}&scm=git&scm_commit=${GITHUB_SHA}&scm_branch=${GITHUB_REF_NAME}&scm_origin=${BASE_URL}${REPO}")
   
