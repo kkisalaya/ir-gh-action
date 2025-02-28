@@ -177,19 +177,6 @@ signal_build_end() {
   return 0
 }
 
-# Function to stop log streaming
-stop_log_streaming() {
-  log "Stopping log streaming"
-  
-  # Check if LOG_STREAM_PID is set
-  if [ -n "$LOG_STREAM_PID" ]; then
-    log "Terminating log streaming process with PID: $LOG_STREAM_PID"
-    kill -TERM "$LOG_STREAM_PID" >/dev/null 2>&1 || true
-  else
-    log "No log streaming process to terminate"
-  fi
-}
-
 # Function to clean up iptables rules
 cleanup_iptables() {
   log "Cleaning up iptables rules"
@@ -211,7 +198,39 @@ cleanup_iptables() {
   fi
 }
 
-# Function to stop and remove PSE container
+# Function to display container logs
+display_container_logs() {
+  local container_name="$1"
+  
+  log "Displaying logs for container: $container_name"
+  
+  # Check if in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping container logs display"
+    return 0
+  fi
+  
+  # Check if container exists or existed
+  if ! sudo docker ps -a -q -f name="$container_name" > /dev/null 2>&1; then
+    log "Container $container_name not found, cannot display logs"
+    return 1
+  fi
+  
+  # Display a separator for better readability
+  echo "================================================================="
+  echo "                   PSE CONTAINER LOGS                            "
+  echo "================================================================="
+  
+  # Get all logs from the container
+  sudo docker logs "$container_name" 2>&1 || log "Failed to retrieve container logs"
+  
+  # Display another separator
+  echo "================================================================="
+  echo "                END OF PSE CONTAINER LOGS                        "
+  echo "================================================================="
+}
+
+# Function to clean up PSE container
 cleanup_pse_container() {
   log "Cleaning up PSE container"
   
@@ -221,8 +240,8 @@ cleanup_pse_container() {
     return 0
   fi
   
-  # Stop log streaming first
-  stop_log_streaming
+  # Display container logs before stopping it
+  display_container_logs "pse"
   
   # Stop and remove PSE container if it exists
   if sudo docker ps -a | grep -q pse; then
