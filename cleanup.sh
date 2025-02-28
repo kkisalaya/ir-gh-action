@@ -26,7 +26,7 @@ trap 'error_handler $LINENO' ERR
 
 # Validate required environment variables
 validate_env_vars() {
-  local required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL" "SCAN_ID")
+  local required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL")
   
   for var in "${required_vars[@]}"; do
     if [ -z "${!var}" ]; then
@@ -35,12 +35,25 @@ validate_env_vars() {
     fi
   done
   
+  # Check SCAN_ID separately with warning instead of error
+  if [ -z "$SCAN_ID" ]; then
+    log "WARNING: SCAN_ID is not set. This may be because scan creation failed. Continuing with cleanup..."
+    # Set a dummy value to prevent further errors
+    export SCAN_ID="cleanup_only"
+  fi
+  
   log "Environment validation successful"
 }
 
 # Function to signal build end
 signal_build_end() {
   log "Signaling build end"
+  
+  # Skip if using dummy SCAN_ID
+  if [ "$SCAN_ID" = "cleanup_only" ]; then
+    log "Skipping build end signal as no valid SCAN_ID is available"
+    return 0
+  fi
   
   # Build URL parameters
   BASE_URL="${GITHUB_SERVER_URL}/"

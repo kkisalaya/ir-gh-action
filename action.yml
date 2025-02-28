@@ -33,11 +33,30 @@ runs:
           -H "Content-Type: application/json" \
           -d "{\"api_key\": \"${{ inputs.app_token }}\"}")
         
-        # Extract scan ID from response
+        # Print response for debugging (masking sensitive data)
+        echo "API Response (masked): $(echo "$SCAN_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')"
+        
+        # Check if the response contains an error message
+        if echo "$SCAN_RESPONSE" | grep -q '"error"'; then
+          echo "Error received from API: $(echo "$SCAN_RESPONSE" | grep -o '"error":"[^"]*' | cut -d'"' -f4)"
+          exit 1
+        fi
+        
+        # Try different patterns to extract scan ID
         SCAN_ID=$(echo "$SCAN_RESPONSE" | grep -o '"scan_id":"[^"]*' | cut -d'"' -f4)
         
+        # If not found, try alternative field names
         if [ -z "$SCAN_ID" ]; then
-          echo "Error: Failed to create scan object"
+          SCAN_ID=$(echo "$SCAN_RESPONSE" | grep -o '"id":"[^"]*' | cut -d'"' -f4)
+        fi
+        
+        # If still not found, try to extract from data field
+        if [ -z "$SCAN_ID" ]; then
+          SCAN_ID=$(echo "$SCAN_RESPONSE" | grep -o '"data":{[^}]*"id":"[^"]*' | grep -o '"id":"[^"]*' | cut -d'"' -f4)
+        fi
+        
+        if [ -z "$SCAN_ID" ]; then
+          echo "Error: Failed to create scan object or extract scan ID from response"
           exit 1
         fi
         
