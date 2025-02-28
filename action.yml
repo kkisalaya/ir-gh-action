@@ -142,16 +142,6 @@ runs:
         TEST_MODE: ${{ inputs.test_mode }}
         GITHUB_TOKEN: ${{ github.token }}
     
-    - name: Register cleanup
-      shell: bash
-      run: |
-        # Register cleanup script to run at the end of the job
-        echo "::set-output name=cleanup::true"
-        # Create a post-job cleanup step using GitHub Actions' post-job hook
-        cat <<EOF >> $GITHUB_ENV
-        GITHUB_CLEANUP: ${{ github.action_path }}/cleanup.sh
-        EOF
-    
     - name: Cleanup PSE Proxy
       if: always()
       shell: bash

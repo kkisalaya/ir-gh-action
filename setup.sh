@@ -504,6 +504,31 @@ signal_build_start() {
   return 0
 }
 
+# Function to register cleanup script
+register_cleanup() {
+  log "Registering cleanup script"
+  
+  # Determine the action path
+  ACTION_PATH="${GITHUB_ACTION_PATH:-$(dirname "$0")}"
+  
+  # Set environment variable for cleanup script path
+  if [ -n "$GITHUB_ENV" ]; then
+    log "Setting GITHUB_CLEANUP environment variable"
+    echo "GITHUB_CLEANUP=${ACTION_PATH}/cleanup.sh" >> "$GITHUB_ENV"
+    log "Cleanup script registered at: ${ACTION_PATH}/cleanup.sh"
+  else
+    log "GITHUB_ENV is not set, skipping cleanup registration"
+  fi
+  
+  # Set output for cleanup flag
+  if [ -n "$GITHUB_OUTPUT" ]; then
+    log "Setting cleanup output variable"
+    echo "cleanup=true" >> "$GITHUB_OUTPUT"
+  else
+    log "GITHUB_OUTPUT is not set, skipping output registration"
+  fi
+}
+
 # Main execution
 main() {
   log "Starting PSE GitHub Action setup"
@@ -515,6 +540,7 @@ main() {
   setup_iptables
   setup_certificates
   signal_build_start
+  register_cleanup
   
   log "PSE GitHub Action setup completed successfully"
 }
