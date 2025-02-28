@@ -38,6 +38,50 @@ validate_env_vars() {
   log "Environment validation successful"
 }
 
+# Function to parse JSON
+parse_json() {
+  local json="$1"
+  local field="$2"
+  
+  # Check if jq is available
+  if command -v jq >/dev/null 2>&1; then
+    # Use jq for more reliable JSON parsing
+    value=$(echo "$json" | jq -r ".$field" 2>/dev/null)
+    if [ "$value" != "null" ] && [ -n "$value" ]; then
+      echo "$value"
+      return 0
+    fi
+  fi
+  
+  # Fallback to grep-based extraction
+  value=$(echo "$json" | grep -o "\"$field\":[[:space:]]*\"[^\"]*\"" | cut -d'"' -f4)
+  echo "$value"
+}
+
+# Function to parse nested JSON
+parse_nested_json() {
+  local json="$1"
+  local parent_field="$2"
+  local child_field="$3"
+  
+  # Check if jq is available
+  if command -v jq >/dev/null 2>&1; then
+    # Use jq for more reliable JSON parsing
+    value=$(echo "$json" | jq -r ".$parent_field.$child_field" 2>/dev/null)
+    if [ "$value" != "null" ] && [ -n "$value" ]; then
+      echo "$value"
+      return 0
+    fi
+  fi
+  
+  # Fallback to extracting parent object first, then child field
+  parent_obj=$(echo "$json" | grep -o "\"$parent_field\":[[:space:]]*{[^}]*}" | sed "s/\"$parent_field\":[[:space:]]*//")
+  if [ -n "$parent_obj" ]; then
+    value=$(echo "$parent_obj" | grep -o "\"$child_field\":[[:space:]]*\"[^\"]*\"" | cut -d'"' -f4)
+    echo "$value"
+  fi
+}
+
 # Function to get ECR credentials
 get_ecr_credentials() {
   log "Obtaining ECR credentials from $API_URL"
@@ -82,7 +126,7 @@ get_ecr_credentials() {
   
   # Check if the response contains an error message
   if echo "$ECR_RESPONSE" | grep -q '"error"'; then
-    log "Error received from API: $(echo "$ECR_RESPONSE" | grep -o '"error":"[^"]*' | cut -d'"' -f4)"
+    log "Error received from API: $(echo "$ECR_RESPONSE" | grep -o '"error":[[:space:]]*"[^"]*"' | cut -d'"' -f4)"
     exit 1
   fi
   
@@ -100,7 +144,7 @@ get_ecr_credentials() {
   
   log "Attempting to extract data field from response"
   # Extract and log the data field (if present)
-  DATA_FIELD=$(echo "$ECR_RESPONSE" | grep -o '"data":"[^"]*' | cut -d'"' -f4)
+  DATA_FIELD=$(parse_json "$ECR_RESPONSE" "data")
   if [ -z "$DATA_FIELD" ]; then
     log "ERROR: No data field found in response"
     exit 1
@@ -113,11 +157,11 @@ get_ecr_credentials() {
   # Log decoded token structure (without sensitive info)
   log "Decoded token structure: $(echo "$DECODED_TOKEN" | sed 's/"password":"[^"]*"/"password":"***"/g')"
   
-  # Extract ECR credentials
-  ECR_USERNAME=$(echo "$DECODED_TOKEN" | grep -o '"username":"[^"]*' | cut -d'"' -f4)
-  ECR_TOKEN=$(echo "$DECODED_TOKEN" | grep -o '"password":"[^"]*' | cut -d'"' -f4)
-  ECR_REGION=$(echo "$DECODED_TOKEN" | grep -o '"region":"[^"]*' | cut -d'"' -f4)
-  ECR_REGISTRY_ID=$(echo "$DECODED_TOKEN" | grep -o '"registry_id":"[^"]*' | cut -d'"' -f4)
+  # Extract ECR credentials - updating patterns to match the actual JSON structure
+  ECR_USERNAME=$(parse_json "$DECODED_TOKEN" "username")
+  ECR_TOKEN=$(parse_json "$DECODED_TOKEN" "password")
+  ECR_REGION=$(parse_json "$DECODED_TOKEN" "region")
+  ECR_REGISTRY_ID=$(parse_json "$DECODED_TOKEN" "registry_id")
   
   # Log extracted values (masking sensitive data)
   log "Extracted username: ${ECR_USERNAME:0:3}***"
@@ -149,12 +193,12 @@ setup_dependencies() {
   if command -v apk > /dev/null 2>&1; then
     # Alpine Linux
     log "Detected Alpine Linux"
-    apk add --no-cache iptables ca-certificates git curl docker
+    apk add --no-cache iptables ca-certificates git curl docker jq
   else
     # Debian/Ubuntu
     log "Detected Debian/Ubuntu"
     sudo apt-get update
-    sudo apt-get install -y iptables ca-certificates git curl
+    sudo apt-get install -y iptables ca-certificates git curl jq
   fi
   
   log "Dependencies installed successfully"
