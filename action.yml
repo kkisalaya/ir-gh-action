@@ -38,14 +38,28 @@ runs:
         TEST_MODE: ${{ inputs.test_mode }}
         GITHUB_TOKEN: ${{ github.token }}
 
-  post: # This will run at the very end of the job
-    - name: Cleanup PSE Proxy
+    - name: Register Cleanup
       shell: bash
-      run: ${{ github.action_path }}/cleanup.sh
+      run: |
+        # Register this action's path for cleanup
+        echo "PSE_ACTION_PATH=${{ github.action_path }}" >> $GITHUB_ENV
+        # Register scan ID for cleanup
+        if [ -n "$SCAN_ID" ]; then
+          echo "PSE_SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
+        fi
+
+    - name: Cleanup PSE Proxy
+      if: always()
+      shell: bash
+      run: |
+        # This step will run at the end of the job
+        # We need to use always() to ensure it runs even if previous steps fail
+        ${{ github.action_path }}/cleanup.sh
       env:
         API_URL: ${{ inputs.api_url }}
         APP_TOKEN: ${{ inputs.app_token }}
         PORTAL_URL: ${{ inputs.portal_url }}
+        SCAN_ID: ${{ env.PSE_SCAN_ID }}
         DEBUG: ${{ inputs.debug }}
         TEST_MODE: ${{ inputs.test_mode }}
         GITHUB_TOKEN: ${{ github.token }}
