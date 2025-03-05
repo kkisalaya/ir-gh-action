@@ -54,7 +54,6 @@ jobs:
       with:
         api_url: 'https://app.invisirisk.com'
         app_token: ${{ secrets.INVISIRISK_TOKEN }}
-        portal_url: 'https://app.invisirisk.com'
         github_token: ${{ secrets.GITHUB_TOKEN }}
         
     - name: Install system dependencies
@@ -86,7 +85,6 @@ jobs:
       with:
         api_url: 'https://app.invisirisk.com'
         app_token: ${{ secrets.INVISIRISK_TOKEN }}
-        portal_url: 'https://app.invisirisk.com'
         github_token: ${{ secrets.GITHUB_TOKEN }}
         cleanup: 'true'
         scan_id: ${{ steps.pse-setup.outputs.scan_id }}
@@ -104,9 +102,22 @@ If you need more detailed logging, you can enable debug mode:
   with:
     api_url: 'https://your-api-url.com'
     app_token: ${{ secrets.INVISIRISK_TOKEN }}
-    portal_url: 'https://your-portal-url.com'
     github_token: ${{ secrets.GITHUB_TOKEN }}
     debug: 'true'
+```
+
+### With Different Portal URL
+
+If your InvisiRisk Portal URL is different from your API URL, you can specify both:
+
+```yaml
+- name: Setup PSE Security Proxy
+  uses: ir-gh-action@v1
+  with:
+    api_url: 'https://api.invisirisk.com'
+    app_token: ${{ secrets.INVISIRISK_TOKEN }}
+    portal_url: 'https://portal.invisirisk.com'
+    github_token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ## Inputs
@@ -115,7 +126,7 @@ If you need more detailed logging, you can enable debug mode:
 |-------|-------------|----------|---------|
 | `api_url` | URL of the InvisiRisk API | Yes | N/A |
 | `app_token` | Authentication token for the InvisiRisk API | Yes | N/A |
-| `portal_url` | URL of the InvisiRisk Portal | Yes | N/A |
+| `portal_url` | URL of the InvisiRisk Portal | No | Same as `api_url` |
 | `github_token` | GitHub token to be passed to the PSE container for GitHub authentication | No | `${{ github.token }}` |
 | `debug` | Enable debug mode for verbose logging | No | `false` |
 | `test_mode` | Enable test mode to bypass API calls and container setup for testing. Use this when you want to test the action without actually running the PSE container. | No | `false` |
