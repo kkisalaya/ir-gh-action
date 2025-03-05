@@ -475,7 +475,7 @@ signal_build_start() {
   build_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
   
   # Build parameters
-  params="builder=$(url_encode "github")"
+  params="builder=$(url_encode "samplegithub")"
   params="${params}&id=$(url_encode "$SCAN_ID")"
   params="${params}&build_id=$(url_encode "$GITHUB_RUN_ID")"
   params="${params}&build_url=$(url_encode "$build_url")"
