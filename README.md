@@ -55,6 +55,7 @@ jobs:
         api_url: 'https://app.invisirisk.com'
         app_token: ${{ secrets.INVISIRISK_TOKEN }}
         portal_url: 'https://app.invisirisk.com'
+        github_token: ${{ secrets.GITHUB_TOKEN }}
         
     - name: Install system dependencies
       run: |
@@ -86,6 +87,7 @@ jobs:
         api_url: 'https://app.invisirisk.com'
         app_token: ${{ secrets.INVISIRISK_TOKEN }}
         portal_url: 'https://app.invisirisk.com'
+        github_token: ${{ secrets.GITHUB_TOKEN }}
         cleanup: 'true'
         scan_id: ${{ steps.pse-setup.outputs.scan_id }}
 ```
@@ -103,6 +105,7 @@ If you need more detailed logging, you can enable debug mode:
     api_url: 'https://your-api-url.com'
     app_token: ${{ secrets.INVISIRISK_TOKEN }}
     portal_url: 'https://your-portal-url.com'
+    github_token: ${{ secrets.GITHUB_TOKEN }}
     debug: 'true'
 ```
 
@@ -113,6 +116,7 @@ If you need more detailed logging, you can enable debug mode:
 | `api_url` | URL of the InvisiRisk API | Yes | N/A |
 | `app_token` | Authentication token for the InvisiRisk API | Yes | N/A |
 | `portal_url` | URL of the InvisiRisk Portal | Yes | N/A |
+| `github_token` | GitHub token to be passed to the PSE container for GitHub authentication | No | `${{ github.token }}` |
 | `debug` | Enable debug mode for verbose logging | No | `false` |
 | `test_mode` | Enable test mode to bypass API calls and container setup for testing. Use this when you want to test the action without actually running the PSE container. | No | `false` |
 | `cleanup` | Clean up the PSE container and related resources | No | `false` |

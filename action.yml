@@ -15,6 +15,10 @@ inputs:
   portal_url:
     description: 'URL of the InvisiRisk Portal'
     required: true
+  github_token:
+    description: 'GitHub token to be passed to the PSE container for GitHub authentication'
+    required: false
+    default: ${{ github.token }}
   debug:
     description: 'Enable debug mode for verbose logging'
     required: false
@@ -151,4 +155,4 @@ runs:
         SCAN_ID: ${{ inputs.cleanup == 'true' && inputs.scan_id || env.SCAN_ID }}
         DEBUG: ${{ inputs.debug }}
         TEST_MODE: ${{ inputs.test_mode }}
-        GITHUB_TOKEN: ${{ github.token }}
+        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
