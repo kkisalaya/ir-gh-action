@@ -98,23 +98,54 @@ signal_build_end() {
     return 1
   fi
   
-  # Make API call to signal build end
-  END_RESPONSE=$(curl -L -s -X POST "$API_URL/utilityapi/v1/scan/$SCAN_ID/end" \
-    -H "Content-Type: application/json" \
-    -d "{\"api_key\": \"$APP_TOKEN\"}")
+  # Use PSE endpoint directly
+  BASE_URL="https://pse.invisirisk.com"
   
-  # Print response for debugging (masking sensitive data)
-  if [ "$DEBUG" = "true" ]; then
-    log "API Response (masked): $(echo "$END_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')"
-  fi
+  # Build URL for the GitHub run
+  build_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
   
-  # Check if the response contains an error message
-  if echo "$END_RESPONSE" | grep -q '"error"'; then
-    log "ERROR: Failed to signal build end: $(echo "$END_RESPONSE" | grep -o '"error":"[^"]*' | cut -d'"' -f4)"
-    return 1
-  fi
+  # Build parameters
+  params="id=$(url_encode "$SCAN_ID")"
+  params="${params}&build_url=$(url_encode "$build_url")"
+  params="${params}&status=$(url_encode "${GITHUB_RUN_RESULT:-unknown}")"
   
-  log "Build end signaled successfully"
+  log "Sending end signal to PSE with parameters: $params"
+  
+  # Send request with retries
+  MAX_RETRIES=3
+  RETRY_DELAY=2
+  ATTEMPT=1
+  
+  while [ $ATTEMPT -le $MAX_RETRIES ]; do
+    log "Sending end signal, attempt $ATTEMPT of $MAX_RETRIES"
+    
+    RESPONSE=$(curl -X POST "${BASE_URL}/end" \
+      -H 'Content-Type: application/x-www-form-urlencoded' \
+      -H 'User-Agent: pse-action' \
+      -d "$params" \
+      -k --tlsv1.2 --insecure \
+      --retry 3 --retry-delay 2 --max-time 10 \
+      -s -w "\n%{http_code}" 2>&1)
+    
+    HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+    RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
+    
+    if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+      log "End signal sent successfully (HTTP $HTTP_CODE)"
+      log "Response: $RESPONSE_BODY"
+      return 0
+    else
+      log "Failed to send end signal (HTTP $HTTP_CODE)"
+      log "Response: $RESPONSE_BODY"
+      log "Retrying in $RETRY_DELAY seconds..."
+      sleep $RETRY_DELAY
+      RETRY_DELAY=$((RETRY_DELAY * 2))
+      ATTEMPT=$((ATTEMPT + 1))
+    fi
+  done
+  
+  log "WARNING: Failed to send end signal after $MAX_RETRIES attempts"
+  log "Continuing anyway..."
   return 0
 }
 
