@@ -26,20 +26,49 @@ trap 'error_handler $LINENO' ERR
 
 # Validate required environment variables
 validate_env_vars() {
-  local required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL")
-  
-  for var in "${required_vars[@]}"; do
-    if [ -z "${!var}" ]; then
-      log "ERROR: Required environment variable $var is not set"
+  # Check for API_URL
+  if [ -z "$API_URL" ]; then
+    log "INFO: API_URL is not set, trying to use PSE_API_URL from previous step..."
+    if [ -n "$PSE_API_URL" ]; then
+      export API_URL="$PSE_API_URL"
+      log "Using API_URL from previous step: $API_URL"
+    else
+      log "ERROR: Could not determine API_URL. Please provide it as an input parameter or run setup first."
       exit 1
     fi
-  done
+  fi
+  
+  # Check for APP_TOKEN
+  if [ -z "$APP_TOKEN" ]; then
+    log "INFO: APP_TOKEN is not set, trying to use PSE_APP_TOKEN from previous step..."
+    if [ -n "$PSE_APP_TOKEN" ]; then
+      export APP_TOKEN="$PSE_APP_TOKEN"
+      log "Using APP_TOKEN from previous step (value hidden)"
+    else
+      log "ERROR: Could not determine APP_TOKEN. Please provide it as an input parameter or run setup first."
+      exit 1
+    fi
+  fi
+  
+  # Check for PORTAL_URL
+  if [ -z "$PORTAL_URL" ]; then
+    log "INFO: PORTAL_URL is not set, trying to use PSE_PORTAL_URL from previous step..."
+    if [ -n "$PSE_PORTAL_URL" ]; then
+      export PORTAL_URL="$PSE_PORTAL_URL"
+      log "Using PORTAL_URL from previous step: $PORTAL_URL"
+    else
+      # Try to use API_URL as fallback
+      export PORTAL_URL="$API_URL"
+      log "Using API_URL as fallback for PORTAL_URL: $PORTAL_URL"
+    fi
+  fi
   
   # Check SCAN_ID separately with warning instead of error
   if [ -z "$SCAN_ID" ]; then
-    log "WARNING: SCAN_ID is not set. This may be because scan creation failed. Continuing with cleanup..."
-    # Set a dummy value to prevent further errors
-    export SCAN_ID="cleanup_only"
+    log "INFO: SCAN_ID is not set, using a default value for cleanup..."
+    # Generate a unique ID for this cleanup session
+    export SCAN_ID="cleanup_$(date +%s)_${GITHUB_RUN_ID:-unknown}"
+    log "Using generated SCAN_ID: $SCAN_ID"
   fi
   
   log "Environment validation successful"

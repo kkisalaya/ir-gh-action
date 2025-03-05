@@ -547,6 +547,14 @@ register_cleanup() {
       log "WARNING: SCAN_ID is not set, post-action step may not work correctly"
     fi
     
+    # Save important variables to GitHub environment for use in cleanup
+    log "Saving variables to GitHub environment for cleanup"
+    echo "GITHUB_CLEANUP=${ACTION_PATH}/cleanup.sh" >> "$GITHUB_ENV"
+    echo "SCAN_ID=$SCAN_ID" >> "$GITHUB_ENV"
+    echo "PSE_API_URL=$API_URL" >> "$GITHUB_ENV"
+    echo "PSE_APP_TOKEN=$APP_TOKEN" >> "$GITHUB_ENV"
+    echo "PSE_PORTAL_URL=$PORTAL_URL" >> "$GITHUB_ENV"
+    
     log "Cleanup script registered at: ${ACTION_PATH}/cleanup.sh"
   else
     log "GITHUB_ENV is not set, skipping cleanup registration"
