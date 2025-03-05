@@ -349,11 +349,16 @@ setup_certificates() {
   RETRY_DELAY=3
   ATTEMPT=1
   
+  # Create directory for extra CA certificates if it doesn't exist
+  sudo mkdir -p /usr/local/share/ca-certificates/extra
+  log "Created directory for extra CA certificates"
+  
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Fetching CA certificate, attempt $ATTEMPT of $MAX_RETRIES"
-    if curl -L -k -s -o /tmp/pse.pem https://pse.invisirisk.com/ca; then
-      sudo mv /tmp/pse.pem /etc/ssl/certs/pse.pem
-      log "CA certificate successfully retrieved"
+    if curl -L -k -s -o /tmp/pse.crt https://pse.invisirisk.com/ca; then
+      # Copy to the proper location for Ubuntu/Debian
+      sudo cp /tmp/pse.crt /usr/local/share/ca-certificates/extra/pse.crt
+      log "CA certificate successfully retrieved and copied to /usr/local/share/ca-certificates/extra/"
       break
     else
       log "Failed to retrieve CA certificate, retrying in $RETRY_DELAY seconds..."
@@ -368,19 +373,37 @@ setup_certificates() {
     exit 1
   fi
   
-  # Update CA certificates
+  # Update CA certificates non-interactively
+  log "Updating CA certificates..."
   sudo update-ca-certificates
   
+  # Set the correct path for the installed certificate
+  CA_CERT_PATH="/etc/ssl/certs/pse.crt"
+  
+  # Verify the certificate was properly installed
+  if [ -f "$CA_CERT_PATH" ]; then
+    log "CA certificate successfully installed at $CA_CERT_PATH"
+  else
+    # Try to find the actual location
+    CA_CERT_PATH=$(find /etc/ssl/certs -name "*pse*" | head -n 1)
+    if [ -z "$CA_CERT_PATH" ]; then
+      log "WARNING: Could not locate installed CA certificate, using default path"
+      CA_CERT_PATH="/etc/ssl/certs/pse.crt"
+    else
+      log "Found CA certificate at $CA_CERT_PATH"
+    fi
+  fi
+  
   # Configure Git to use our CA
-  git config --global http.sslCAInfo /etc/ssl/certs/pse.pem
+  git config --global http.sslCAInfo "$CA_CERT_PATH"
   
   # Set environment variables for other tools
-  export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/pse.pem
-  export REQUESTS_CA_BUNDLE=/etc/ssl/certs/pse.pem
+  export NODE_EXTRA_CA_CERTS="$CA_CERT_PATH"
+  export REQUESTS_CA_BUNDLE="$CA_CERT_PATH"
   
   # Add to GITHUB_ENV to persist these variables
-  echo "NODE_EXTRA_CA_CERTS=/etc/ssl/certs/pse.pem" >> $GITHUB_ENV
-  echo "REQUESTS_CA_BUNDLE=/etc/ssl/certs/pse.pem" >> $GITHUB_ENV
+  echo "NODE_EXTRA_CA_CERTS=$CA_CERT_PATH" >> $GITHUB_ENV
+  echo "REQUESTS_CA_BUNDLE=$CA_CERT_PATH" >> $GITHUB_ENV
   
   log "Certificates configured successfully"
 }

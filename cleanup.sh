@@ -204,17 +204,30 @@ cleanup_certificates() {
     return 0
   fi
   
-  # Remove PSE certificate
-  if [ -f /etc/ssl/certs/pse.pem ]; then
-    sudo rm -f /etc/ssl/certs/pse.pem
+  # Remove PSE certificate from the Ubuntu CA store
+  if [ -f /usr/local/share/ca-certificates/extra/pse.crt ]; then
+    log "Removing PSE certificate from CA store"
+    sudo rm -f /usr/local/share/ca-certificates/extra/pse.crt
     sudo update-ca-certificates --fresh
     log "PSE certificate removed"
+  elif [ -f /etc/ssl/certs/pse.pem ]; then
+    # Backward compatibility for old installations
+    log "Removing legacy PSE certificate"
+    sudo rm -f /etc/ssl/certs/pse.pem
+    sudo update-ca-certificates --fresh
+    log "Legacy PSE certificate removed"
   else
-    log "No PSE certificate to clean up"
+    log "No PSE certificate found to clean up"
   fi
   
   # Reset Git SSL configuration
   git config --global --unset http.sslCAInfo || true
+  
+  # Clean up environment variables
+  unset NODE_EXTRA_CA_CERTS
+  unset REQUESTS_CA_BUNDLE
+  
+  log "Certificate cleanup completed"
 }
 
 # Main execution
