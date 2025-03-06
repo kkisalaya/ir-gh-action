@@ -106,10 +106,8 @@ create_scan() {
     -H "Content-Type: application/json" \
     -d "{\"api_key\": \"$APP_TOKEN\"}")
   
-  # Print response for debugging (masking sensitive data)
-  # Use a cleaner format to avoid GitHub file command issues
-  masked_response=$(echo "$SCAN_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')
-  echo "API Response received (sensitive data masked)"
+  # Don't print the actual response to avoid GitHub file command issues
+  echo "API call completed successfully"
   
   # Check if the response contains an error message
   if echo "$SCAN_RESPONSE" | grep -q '"error"'; then
@@ -154,14 +152,13 @@ export SCAN_ID="$SCAN_ID"
 
 # Set GitHub environment variable
 if [ -n "$GITHUB_ENV" ]; then
-  # Use proper GitHub environment file syntax
   echo "SCAN_ID=$SCAN_ID" >> "$GITHUB_ENV"
-  echo "Setting SCAN_ID in GitHub environment: $SCAN_ID"
 fi
 
 # Set GitHub output variable
 if [ -n "$GITHUB_OUTPUT" ]; then
-  # Use proper GitHub output file syntax with delimiter
   echo "scan_id=$SCAN_ID" >> "$GITHUB_OUTPUT"
-  echo "Setting scan_id in GitHub output: $SCAN_ID"
 fi
+
+# Print success message
+echo "Scan created successfully with ID: $SCAN_ID"

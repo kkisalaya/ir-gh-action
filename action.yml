@@ -58,8 +58,17 @@ runs:
         else
           echo "Running PSE setup..."
           # First create scan in InvisiRisk Portal
+          echo "Creating scan in InvisiRisk Portal..."
           chmod +x ${{ github.action_path }}/create_scan.sh
           ${{ github.action_path }}/create_scan.sh
+          
+          # Get SCAN_ID from environment if it was set by create_scan.sh
+          if [ -f "$GITHUB_ENV" ]; then
+            SCAN_ID=$(grep "^SCAN_ID=" "$GITHUB_ENV" | cut -d= -f2)
+            if [ -n "$SCAN_ID" ]; then
+              echo "Using SCAN_ID: $SCAN_ID"
+            fi
+          fi
           
           # Run setup script
           chmod +x ${{ github.action_path }}/setup.sh
