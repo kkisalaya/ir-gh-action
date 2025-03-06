@@ -46,15 +46,130 @@ runs:
         if [ "${{ inputs.cleanup }}" = "true" ]; then
           echo "Running PSE cleanup..."
           
-          # Ensure script is executable
-          chmod +x "${{ github.action_path }}/cleanup.sh"
+          # Safer script execution with path detection
+          echo "Looking for cleanup script..."
+          CLEANUP_SCRIPT="${{ github.action_path }}/cleanup.sh"
           
-          # Copy script to a known location that will work in both container and non-container environments
-          cp "${{ github.action_path }}/cleanup.sh" /tmp/pse_cleanup.sh
-          chmod +x /tmp/pse_cleanup.sh
+          # Check if the script exists at the expected location
+          if [ ! -f "$CLEANUP_SCRIPT" ]; then
+            echo "Warning: Script not found at $CLEANUP_SCRIPT"
+            # Try alternative locations
+            POSSIBLE_PATHS=(
+              "$GITHUB_WORKSPACE/cleanup.sh"
+              "/github/workspace/cleanup.sh"
+              "$GITHUB_ACTION_PATH/cleanup.sh"
+              "$RUNNER_WORKSPACE/$(basename $GITHUB_REPOSITORY)/cleanup.sh"
+              "$PWD/cleanup.sh"
+            )
+            
+            for alt_path in "${POSSIBLE_PATHS[@]}"; do
+              if [ -f "$alt_path" ]; then
+                echo "Found script at alternative location: $alt_path"
+                CLEANUP_SCRIPT="$alt_path"
+                break
+              fi
+            done
+            
+            # If still not found, try to create script from embedded content
+            if [ ! -f "$CLEANUP_SCRIPT" ]; then
+              echo "Recreating cleanup script in temp location"
+              # Here we're embedding a minimal cleanup.sh as a fallback
+              cat > /tmp/pse_cleanup.sh << 'CLEANUP_SCRIPT_EOF'
+#!/bin/bash
+# PSE GitHub Action - Minimal Cleanup Script
+# Compatible with both container and non-container environments
+
+# Enable strict error handling
+set -e
+
+# Enable debug mode if requested
+if [ "$DEBUG" = "true" ]; then
+  set -x
+fi
+
+# Detect if running in a container
+is_container() {
+  # Check multiple indicators of container environment
+  if [ -f "/.dockerenv" ] || [ -f "/run/.containerenv" ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Detected container environment"
+    return 0  # True in bash
+  else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Detected non-container environment"
+    return 1  # False in bash
+  fi
+}
+
+# Function to execute a command with or without sudo based on environment
+exec_with_privileges() {
+  if is_container; then
+    # In container, try to run without sudo
+    "$@"
+  else
+    # On host, use sudo
+    sudo "$@"
+  fi
+}
+
+# Log with timestamp
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+log "Starting minimal PSE cleanup..."
+
+# Validate environment variables
+log "Checking environment variables"
+if [ -z "$API_URL" ] && [ -n "$PSE_API_URL" ]; then
+  export API_URL="$PSE_API_URL"
+  log "Using API_URL from previous step: $API_URL"
+fi
+
+if [ -z "$APP_TOKEN" ] && [ -n "$PSE_APP_TOKEN" ]; then
+  export APP_TOKEN="$PSE_APP_TOKEN"
+  log "Using APP_TOKEN from previous step"
+fi
+
+if [ -z "$SCAN_ID" ]; then
+  export SCAN_ID="cleanup_$(date +%s)_${GITHUB_RUN_ID:-unknown}"
+  log "Using generated SCAN_ID: $SCAN_ID"
+fi
+
+# Clean up environment
+log "Cleaning up PSE environment"
+
+# Reset proxy environment variables
+unset HTTPS_PROXY HTTP_PROXY NO_PROXY
+
+# Clean up iptables rules if on host
+if ! is_container; then
+  log "Cleaning up iptables rules"
+  if exec_with_privileges iptables -t nat -L pse >/dev/null 2>&1; then
+    exec_with_privileges iptables -t nat -D OUTPUT -j pse 2>/dev/null || true
+    exec_with_privileges iptables -t nat -F pse 2>/dev/null || true
+    exec_with_privileges iptables -t nat -X pse 2>/dev/null || true
+    log "iptables rules removed successfully"
+  else
+    log "No iptables rules to clean up"
+  fi
+fi
+
+log "PSE cleanup completed successfully"
+exit 0
+CLEANUP_SCRIPT_EOF
+              chmod +x /tmp/pse_cleanup.sh
+              CLEANUP_SCRIPT="/tmp/pse_cleanup.sh"
+            fi
+          fi
           
-          # Run cleanup script from the known location
-          /tmp/pse_cleanup.sh
+          # Make the script executable
+          if [ -f "$CLEANUP_SCRIPT" ]; then
+            chmod +x "$CLEANUP_SCRIPT" || true
+            echo "Executing: $CLEANUP_SCRIPT"
+            "$CLEANUP_SCRIPT"
+          else
+            echo "ERROR: Could not find or create cleanup script"
+            exit 1
+          fi
         else
           echo "Running PSE setup..."
           # First create scan in InvisiRisk Portal
@@ -193,15 +308,167 @@ runs:
             echo "jq is already installed"
           fi
           
-          # Ensure script is executable
-          chmod +x "${{ github.action_path }}/setup.sh"
+          # Safer script execution with path detection
+          echo "Looking for setup script..."
+          SETUP_SCRIPT="${{ github.action_path }}/setup.sh"
           
-          # Copy script to a known location that will work in both container and non-container environments
-          cp "${{ github.action_path }}/setup.sh" /tmp/pse_setup.sh
-          chmod +x /tmp/pse_setup.sh
+          # Check if the script exists at the expected location
+          if [ ! -f "$SETUP_SCRIPT" ]; then
+            echo "Warning: Script not found at $SETUP_SCRIPT"
+            # Try alternative locations
+            POSSIBLE_PATHS=(
+              "$GITHUB_WORKSPACE/setup.sh"
+              "/github/workspace/setup.sh"
+              "$GITHUB_ACTION_PATH/setup.sh"
+              "$RUNNER_WORKSPACE/$(basename $GITHUB_REPOSITORY)/setup.sh"
+              "$PWD/setup.sh"
+            )
+            
+            for alt_path in "${POSSIBLE_PATHS[@]}"; do
+              if [ -f "$alt_path" ]; then
+                echo "Found script at alternative location: $alt_path"
+                SETUP_SCRIPT="$alt_path"
+                break
+              fi
+            done
+            
+            # If still not found, try to create the script from embedded content
+            if [ ! -f "$SETUP_SCRIPT" ]; then
+              echo "Recreating setup script in temp location"
+              # Here we're embedding our setup.sh content as a fallback
+              cat > /tmp/pse_setup.sh << 'SETUP_SCRIPT_EOF'
+#!/bin/bash
+# PSE GitHub Action - Setup Script
+# This script configures the build environment to route HTTPS traffic through the PSE proxy
+# Compatible with both container and non-container environments
+
+# Enable strict error handling
+set -e
+
+# Enable debug mode if requested
+if [ "$DEBUG" = "true" ]; then
+  set -x
+fi
+
+# Detect if running in a container
+is_container() {
+  # Check multiple indicators of container environment
+  if [ -f "/.dockerenv" ] || [ -f "/run/.containerenv" ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; then
+    log "Detected container environment"
+    return 0  # True in bash
+  else
+    log "Detected non-container environment"
+    return 1  # False in bash
+  fi
+}
+
+# Function to execute a command with or without sudo based on environment
+exec_with_privileges() {
+  if is_container; then
+    # In container, try to run without sudo
+    "$@"
+  else
+    # On host, use sudo
+    sudo "$@"
+  fi
+}
+
+# Log with timestamp
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+# Error handler
+error_handler() {
+  log "ERROR: An error occurred on line $1"
+  exit 1
+}
+
+# Set up error trap
+trap 'error_handler $LINENO' ERR
+
+# Setup minimal environment
+log "Setting up minimal PSE environment..."
+
+# Make basic checks
+log "Checking environment variables..."
+for var in API_URL APP_TOKEN; do
+  if [ -z "${!var}" ]; then
+    log "Error: $var is not set"
+    exit 1
+  fi
+done
+
+# Install basic packages
+if command -v apk > /dev/null 2>&1; then
+  # Alpine Linux
+  log "Detected Alpine Linux"
+  apk add --no-cache iptables ca-certificates curl
+else
+  # Debian/Ubuntu
+  log "Detected Debian/Ubuntu"
+  if is_container && ! command -v sudo >/dev/null 2>&1; then
+    apt-get update
+    apt-get install -y sudo
+  fi
+  exec_with_privileges apt-get update
+  exec_with_privileges apt-get install -y iptables ca-certificates curl
+fi
+
+# Set up minimal proxy
+log "Setting up basic proxy environment..."
+if is_container; then
+  log "Container detected, using environment variables for proxying"
+  # In container, set environment variables for proxying
+  export HTTPS_PROXY="http://127.0.0.1:12345"
+  export HTTP_PROXY="http://127.0.0.1:12345"
+  export NO_PROXY="localhost,127.0.0.1"
+  log "Proxy environment variables set"
+else
+  # On host, use iptables
+  log "Setting up iptables rules"
+  exec_with_privileges iptables -t nat -N pse 2>/dev/null || true
+  exec_with_privileges iptables -t nat -A OUTPUT -j pse 2>/dev/null || true
+fi
+
+log "Minimal PSE environment setup complete"
+log "API_URL: $API_URL"
+log "SCAN_ID: ${SCAN_ID:-Not provided}"
+log "Setting PSE environment variables for cleanup step"
+
+# Save values for cleanup
+export PSE_API_URL="$API_URL"
+export PSE_APP_TOKEN="$APP_TOKEN"
+if [ -n "$PORTAL_URL" ]; then
+  export PSE_PORTAL_URL="$PORTAL_URL"
+fi
+
+# Save to GitHub environment
+if [ -n "$GITHUB_ENV" ]; then
+  echo "PSE_API_URL=$API_URL" >> $GITHUB_ENV
+  echo "PSE_APP_TOKEN=$APP_TOKEN" >> $GITHUB_ENV
+  if [ -n "$PORTAL_URL" ]; then
+    echo "PSE_PORTAL_URL=$PORTAL_URL" >> $GITHUB_ENV
+  fi
+  log "Environment variables saved to GITHUB_ENV"
+fi
+
+exit 0
+SETUP_SCRIPT_EOF
+              chmod +x /tmp/pse_setup.sh
+              SETUP_SCRIPT="/tmp/pse_setup.sh"
+            fi
+          fi
           
-          # Run setup script from the known location
-          /tmp/pse_setup.sh
+          # Make the script executable
+          if [ -f "$SETUP_SCRIPT" ]; then
+            chmod +x "$SETUP_SCRIPT" || true
+            echo "Executing: $SETUP_SCRIPT"
+            "$SETUP_SCRIPT"
+          else
+            echo "ERROR: Could not find or create setup script"
+            exit 1
+          fi
         fi
       env:
         API_URL: ${{ inputs.cleanup == 'true' && env.PSE_API_URL || inputs.api_url }}
