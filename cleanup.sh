@@ -135,10 +135,16 @@ validate_env_vars() {
   
   # Check SCAN_ID separately with warning instead of error
   if [ -z "$SCAN_ID" ]; then
-    log "INFO: SCAN_ID is not set, using a default value for cleanup..."
-    # Generate a unique ID for this cleanup session
-    export SCAN_ID="cleanup_$(date +%s)_${GITHUB_RUN_ID:-unknown}"
-    log "Using generated SCAN_ID: $SCAN_ID"
+    # First try to get it from GitHub environment variables
+    if [ -n "$GITHUB_ENV" ] && [ -f "$GITHUB_ENV" ] && grep -q "SCAN_ID=" "$GITHUB_ENV"; then
+      export SCAN_ID=$(grep "SCAN_ID=" "$GITHUB_ENV" | cut -d= -f2)
+      log "Retrieved SCAN_ID from GitHub environment: $SCAN_ID"
+    else
+      log "INFO: SCAN_ID is not set, using a default value for cleanup..."
+      # Generate a unique ID for this cleanup session using GitHub run ID if available
+      export SCAN_ID="cleanup_${GITHUB_RUN_ID:-$(date +%s)}_${GITHUB_RUN_NUMBER:-0}"
+      log "Using generated SCAN_ID: $SCAN_ID"
+    fi
   fi
   
   log "Environment validation successful"
@@ -193,8 +199,10 @@ signal_build_end() {
   
   # Check if SCAN_ID is set
   if [ -z "$SCAN_ID" ]; then
-    log "ERROR: SCAN_ID is not set, cannot signal build end"
-    return 1
+    log "WARNING: SCAN_ID is not set, attempting to continue with a generated ID"
+    # Generate a unique ID for this cleanup session
+    export SCAN_ID="cleanup_${GITHUB_RUN_ID:-$(date +%s)}_${GITHUB_RUN_NUMBER:-0}"
+    log "Using generated SCAN_ID: $SCAN_ID"
   fi
   
   # Use PSE endpoint directly
@@ -260,6 +268,12 @@ display_container_logs() {
     return 0
   fi
   
+  # Check if docker command is available
+  if ! command -v docker >/dev/null 2>&1; then
+    log "Docker command not found, skipping container logs display"
+    return 0
+  fi
+  
   # Check if sudo is available, install it if needed and we're in a container
   if is_container && ! command -v sudo >/dev/null 2>&1; then
     log "sudo not found, installing it"
@@ -298,11 +312,17 @@ cleanup_pse_container() {
     return 0
   fi
   
+  # Check if docker command is available
+  if ! command -v docker >/dev/null 2>&1; then
+    log "Docker command not found, skipping container cleanup"
+    return 0
+  fi
+  
   # Display container logs before stopping it
   display_container_logs "pse"
   
   # Stop and remove PSE container if it exists
-  if exec_with_privileges docker ps -a | grep -q pse; then
+  if exec_with_privileges docker ps -a | grep -q pse 2>/dev/null; then
     exec_with_privileges docker stop pse 2>/dev/null || true
     exec_with_privileges docker rm pse 2>/dev/null || true
     log "PSE container stopped and removed"
@@ -318,6 +338,12 @@ cleanup_iptables() {
   # Check if in test mode
   if [ "$TEST_MODE" = "true" ]; then
     log "Running in TEST_MODE, skipping iptables cleanup"
+    return 0
+  fi
+  
+  # Check if iptables command is available
+  if ! command -v iptables >/dev/null 2>&1; then
+    log "iptables command not found, skipping iptables cleanup"
     return 0
   fi
   

@@ -84,6 +84,30 @@ runs:
           # Find and execute cleanup script
           SCRIPT_PATH="${{ github.action_path }}/cleanup.sh"
           
+          # Try alternative paths if the primary path doesn't work
+          if [ ! -f "$SCRIPT_PATH" ]; then
+            # Try to find the script in common locations
+            for alt_path in "$GITHUB_WORKSPACE/cleanup.sh" "$PWD/cleanup.sh" "$(dirname "$0")/cleanup.sh" "/github/workspace/cleanup.sh"; do
+              if [ -f "$alt_path" ]; then
+                SCRIPT_PATH="$alt_path"
+                break
+              fi
+            done
+            
+            # Last resort: search for the script
+            if [ ! -f "$SCRIPT_PATH" ]; then
+              for search_dir in "$GITHUB_WORKSPACE" "$GITHUB_ACTION_PATH" "$PWD" "/github/workspace"; do
+                if [ -d "$search_dir" ]; then
+                  found_script=$(find "$search_dir" -name "cleanup.sh" -type f -print -quit 2>/dev/null)
+                  if [ -n "$found_script" ]; then
+                    SCRIPT_PATH="$found_script"
+                    break
+                  fi
+                fi
+              done
+            fi
+          fi
+          
           if [ -f "$SCRIPT_PATH" ]; then
             echo "Found cleanup script at: $SCRIPT_PATH"
             chmod +x "$SCRIPT_PATH" || true
@@ -106,6 +130,30 @@ runs:
           # Find and execute setup script
           SCRIPT_PATH="${{ github.action_path }}/setup.sh"
           
+          # Try alternative paths if the primary path doesn't work
+          if [ ! -f "$SCRIPT_PATH" ]; then
+            # Try to find the script in common locations
+            for alt_path in "$GITHUB_WORKSPACE/setup.sh" "$PWD/setup.sh" "$(dirname "$0")/setup.sh" "/github/workspace/setup.sh"; do
+              if [ -f "$alt_path" ]; then
+                SCRIPT_PATH="$alt_path"
+                break
+              fi
+            done
+            
+            # Last resort: search for the script
+            if [ ! -f "$SCRIPT_PATH" ]; then
+              for search_dir in "$GITHUB_WORKSPACE" "$GITHUB_ACTION_PATH" "$PWD" "/github/workspace"; do
+                if [ -d "$search_dir" ]; then
+                  found_script=$(find "$search_dir" -name "setup.sh" -type f -print -quit 2>/dev/null)
+                  if [ -n "$found_script" ]; then
+                    SCRIPT_PATH="$found_script"
+                    break
+                  fi
+                fi
+              done
+            fi
+          fi
+          
           if [ -f "$SCRIPT_PATH" ]; then
             echo "Found setup script at: $SCRIPT_PATH"
             chmod +x "$SCRIPT_PATH" || true
@@ -119,7 +167,7 @@ runs:
         API_URL: ${{ inputs.cleanup == 'true' && env.PSE_API_URL || inputs.api_url }}
         APP_TOKEN: ${{ inputs.cleanup == 'true' && env.PSE_APP_TOKEN || inputs.app_token }}
         PORTAL_URL: ${{ inputs.cleanup == 'true' && env.PSE_PORTAL_URL || inputs.portal_url || inputs.api_url }}
-        SCAN_ID: ${{ inputs.cleanup == 'true' && (inputs.scan_id || env.SCAN_ID) || env.SCAN_ID }}
+        SCAN_ID: ${{ inputs.scan_id || github.run_id }}
         DEBUG: ${{ inputs.debug }}
         TEST_MODE: ${{ inputs.test_mode }}
         GITHUB_TOKEN: ${{ inputs.github_token || github.token }}

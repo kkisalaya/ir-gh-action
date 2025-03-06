@@ -96,14 +96,29 @@ trap 'error_handler $LINENO' ERR
 
 # Validate required environment variables
 validate_env_vars() {
-  local required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL" "SCAN_ID" "GITHUB_TOKEN")
+  # First check critical variables that are always required
+  local critical_vars=("API_URL" "APP_TOKEN" "PORTAL_URL" "GITHUB_TOKEN")
   
-  for var in "${required_vars[@]}"; do
+  for var in "${critical_vars[@]}"; do
     if [ -z "${!var}" ]; then
       log "ERROR: Required environment variable $var is not set"
       exit 1
     fi
   done
+  
+  # Check SCAN_ID separately and generate if not provided
+  if [ -z "$SCAN_ID" ]; then
+    log "INFO: SCAN_ID is not set, generating a default value..."
+    # Generate a unique ID using GitHub run ID or timestamp
+    export SCAN_ID="${GITHUB_RUN_ID:-$(date +%s)}_${GITHUB_RUN_NUMBER:-0}"
+    log "Using generated SCAN_ID: $SCAN_ID"
+    # Save to GitHub environment for later steps
+    echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
+  else
+    log "Using provided SCAN_ID: $SCAN_ID"
+    # Save to GitHub environment for later steps
+    echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
+  fi
   
   log "Environment validation successful"
 }
@@ -653,12 +668,58 @@ register_cleanup() {
 main() {
   log "Starting PSE GitHub Action setup"
   
+  # Validate environment variables first
   validate_env_vars
-  setup_dependencies
-  get_ecr_credentials
-  pull_and_start_pse_container
-  setup_iptables
-  setup_certificates
+  
+  # Save environment variables to GitHub environment for later steps
+  if [ -n "$GITHUB_ENV" ]; then
+    echo "PSE_API_URL=$API_URL" >> "$GITHUB_ENV"
+    echo "PSE_APP_TOKEN=$APP_TOKEN" >> "$GITHUB_ENV"
+    echo "PSE_PORTAL_URL=$PORTAL_URL" >> "$GITHUB_ENV"
+    echo "SCAN_ID=$SCAN_ID" >> "$GITHUB_ENV"
+    log "Saved environment variables to GitHub environment"
+  fi
+  
+  # Check if we're in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping actual setup"
+    log "PSE GitHub Action setup completed successfully (TEST_MODE)"
+    return 0
+  fi
+  
+  # Determine if we're in a container environment
+  if is_container; then
+    log "Running in container environment, adapting setup process"
+    # In container environments, some steps might need to be skipped or modified
+    setup_dependencies
+    get_ecr_credentials
+    
+    # Check if Docker is available in this container
+    if command -v docker >/dev/null 2>&1; then
+      pull_and_start_pse_container
+    else
+      log "Docker not available in this container, skipping container setup"
+    fi
+    
+    # Check if iptables is available
+    if command -v iptables >/dev/null 2>&1; then
+      setup_iptables
+    else
+      log "iptables not available in this container, skipping iptables setup"
+    fi
+    
+    setup_certificates
+  else
+    # Standard environment with full setup
+    log "Running in standard environment, performing full setup"
+    setup_dependencies
+    get_ecr_credentials
+    pull_and_start_pse_container
+    setup_iptables
+    setup_certificates
+  fi
+  
+  # These steps should always run regardless of environment
   signal_build_start
   register_cleanup
   
@@ -667,9 +728,19 @@ main() {
   # If we're in debug mode, display container status
   if [ "$DEBUG" = "true" ]; then
     log "Container status:"
-    sudo docker ps -a | grep pse || true
-    log "Container logs (last 10 lines):"
-    sudo docker logs --tail 10 pse 2>&1 || true
+    if command -v docker >/dev/null 2>&1; then
+      if is_container; then
+        docker ps -a | grep pse || true
+        log "Container logs (last 10 lines):"
+        docker logs --tail 10 pse 2>&1 || true
+      else
+        sudo docker ps -a | grep pse || true
+        log "Container logs (last 10 lines):"
+        sudo docker logs --tail 10 pse 2>&1 || true
+      fi
+    else
+      log "Docker not available, skipping container status display"
+    fi
   fi
   
   log "PSE container logs will be displayed at the end of the run"
