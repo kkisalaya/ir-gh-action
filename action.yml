@@ -149,9 +149,43 @@ runs:
           echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
           echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
           
-          # Run setup script
-          chmod +x ${{ github.action_path }}/setup.sh
-          ${{ github.action_path }}/setup.sh
+          # Run setup script - use environment variables for more reliable paths
+          echo "Using action path: $GITHUB_ACTION_PATH"
+          
+          # Try multiple possible paths for the setup script
+          if [ -f "$GITHUB_ACTION_PATH/setup.sh" ]; then
+            echo "Found setup.sh at GITHUB_ACTION_PATH"
+            chmod +x "$GITHUB_ACTION_PATH/setup.sh"
+            "$GITHUB_ACTION_PATH/setup.sh"
+          elif [ -f "${{ github.action_path }}/setup.sh" ]; then
+            echo "Found setup.sh at github.action_path"
+            chmod +x "${{ github.action_path }}/setup.sh"
+            "${{ github.action_path }}/setup.sh"
+          else
+            echo "ERROR: Could not find setup.sh in any of the expected locations"
+            echo "Searched in:"
+            echo "  - $GITHUB_ACTION_PATH/setup.sh"
+            echo "  - ${{ github.action_path }}/setup.sh"
+            
+            # List files in potential directories to help debug
+            echo ""
+            echo "Listing files in GITHUB_ACTION_PATH (if it exists):"
+            if [ -d "$GITHUB_ACTION_PATH" ]; then
+              ls -la "$GITHUB_ACTION_PATH"
+            else
+              echo "GITHUB_ACTION_PATH directory does not exist"
+            fi
+            
+            echo ""
+            echo "Listing files in github.action_path (if it exists):"
+            if [ -d "${{ github.action_path }}" ]; then
+              ls -la "${{ github.action_path }}"
+            else
+              echo "github.action_path directory does not exist"
+            fi
+            
+            exit 1
+          fi
         fi
       env:
         API_URL: ${{ inputs.api_url }}
