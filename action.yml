@@ -68,6 +68,35 @@ runs:
         echo "RUNNING_IN_CONTAINER=$IS_CONTAINER" >> $GITHUB_ENV
         echo "Running in container: $IS_CONTAINER"
         
+        # Debug mode: List files and environment variables if running in container
+        if [ "$IS_CONTAINER" = "true" ] && [ "${{ inputs.debug }}" = "true" ]; then
+          echo "Debug mode enabled in container environment. Listing files and directories:"
+          
+          # Check if tree command is available, install if not
+          if ! command -v tree &> /dev/null; then
+            echo "Installing tree command..."
+            apt-get update -qq && apt-get install -y tree || {
+              echo "Could not install tree, falling back to find command"
+            }
+          fi
+          
+          # Try tree command first, fallback to find if not available
+          if command -v tree &> /dev/null; then
+            echo "Directory structure (using tree):"
+            tree -a -L 3 ${{ github.workspace }} || echo "Tree command failed"
+          else
+            echo "Directory structure (using find):"
+            find ${{ github.workspace }} -type f -o -type d | sort
+          fi
+          
+          # Print all environment variables
+          echo ""
+          echo "Environment variables:"
+          echo "==================="
+          # Print all environment variables but mask sensitive ones
+          env | sort | sed 's/\(.*TOKEN.*=\).*/\1********/g' | sed 's/\(.*SECRET.*=\).*/\1********/g' | sed 's/\(.*PASSWORD.*=\).*/\1********/g' | sed 's/\(.*KEY.*=\).*/\1********/g'
+        fi
+        
         # Store API credentials for both setup and cleanup
         if [ "${{ inputs.cleanup }}" != "true" ]; then
           # Only store these during setup phase
