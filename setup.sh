@@ -10,6 +10,27 @@ if [ "$DEBUG" = "true" ]; then
   set -x
 fi
 
+# Check if running inside a container if RUNNING_IN_CONTAINER is not already set
+if [ -z "$RUNNING_IN_CONTAINER" ]; then
+  # Method 1: Check for .dockerenv file
+  if [ -f "/.dockerenv" ]; then
+    export RUNNING_IN_CONTAINER="true"
+    echo "Detected container environment via /.dockerenv"
+  # Method 2: Check cgroup
+  elif grep -q docker /proc/1/cgroup 2>/dev/null; then
+    export RUNNING_IN_CONTAINER="true"
+    echo "Detected container environment via cgroup"
+  # Method 3: Check for container-specific environment variables
+  elif [ -n "$KUBERNETES_SERVICE_HOST" ]; then
+    export RUNNING_IN_CONTAINER="true"
+    echo "Detected container environment via Kubernetes environment variables"
+  else
+    export RUNNING_IN_CONTAINER="false"
+    echo "Not running in a container environment"
+  fi
+  echo "RUNNING_IN_CONTAINER=$RUNNING_IN_CONTAINER"
+fi
+
 # Log with timestamp
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
@@ -232,10 +253,13 @@ setup_dependencies() {
     log "Detected Debian/Ubuntu"
     if [ "$RUNNING_IN_CONTAINER" = "true" ]; then
       # In container, run without sudo
+      log "Running in container environment, executing without sudo"
       apt-get update
       apt-get install -y iptables ca-certificates git curl jq
     else
       # Not in container, use sudo
+      log "Running in non-container environment, executing with sudo"
+      command -v sudo >/dev/null 2>&1 || { log "ERROR: sudo command not found, but not in container environment"; exit 1; }
       sudo apt-get update
       sudo apt-get install -y iptables ca-certificates git curl jq
     fi

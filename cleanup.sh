@@ -10,6 +10,27 @@ if [ "$DEBUG" = "true" ]; then
   set -x
 fi
 
+# Check if running inside a container if RUNNING_IN_CONTAINER is not already set
+if [ -z "$RUNNING_IN_CONTAINER" ]; then
+  # Method 1: Check for .dockerenv file
+  if [ -f "/.dockerenv" ]; then
+    export RUNNING_IN_CONTAINER="true"
+    echo "Detected container environment via /.dockerenv"
+  # Method 2: Check cgroup
+  elif grep -q docker /proc/1/cgroup 2>/dev/null; then
+    export RUNNING_IN_CONTAINER="true"
+    echo "Detected container environment via cgroup"
+  # Method 3: Check for container-specific environment variables
+  elif [ -n "$KUBERNETES_SERVICE_HOST" ]; then
+    export RUNNING_IN_CONTAINER="true"
+    echo "Detected container environment via Kubernetes environment variables"
+  else
+    export RUNNING_IN_CONTAINER="false"
+    echo "Not running in a container environment"
+  fi
+  echo "RUNNING_IN_CONTAINER=$RUNNING_IN_CONTAINER"
+fi
+
 # Log with timestamp
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
