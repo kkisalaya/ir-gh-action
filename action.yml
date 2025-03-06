@@ -40,143 +40,73 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Check Environment
+      shell: bash
+      run: |
+        # Create a helper function to check if running in a container
+        is_container() {
+          if [ -f "/.dockerenv" ] || [ -f "/run/.containerenv" ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; then
+            return 0  # True in bash
+          else
+            return 1  # False in bash
+          fi
+        }
+
+        # Export the container status for other steps
+        if is_container; then
+          echo "Running in container environment"
+          echo "PSE_IS_CONTAINER=true" >> $GITHUB_ENV
+        else
+          echo "Running in standard environment"
+          echo "PSE_IS_CONTAINER=false" >> $GITHUB_ENV
+        fi
+    
     - name: Run Setup or Cleanup
       shell: bash
       run: |
+        # Function to run a command with proper privileges
+        exec_with_privileges() {
+          if [ "$PSE_IS_CONTAINER" = "true" ]; then
+            # In container, run directly
+            "$@"
+          else
+            # On host, use sudo
+            sudo "$@"
+          fi
+        }
+        
         if [ "${{ inputs.cleanup }}" = "true" ]; then
           echo "Running PSE cleanup..."
           
-          # Safer script execution with path detection
-          echo "Looking for cleanup script..."
+          # Setup cleanup script path
           CLEANUP_SCRIPT="${{ github.action_path }}/cleanup.sh"
-          
-          # Check if the script exists at the expected location
           if [ ! -f "$CLEANUP_SCRIPT" ]; then
-            echo "Warning: Script not found at $CLEANUP_SCRIPT"
-            # Try alternative locations
-            POSSIBLE_PATHS=(
-              "$GITHUB_WORKSPACE/cleanup.sh"
-              "/github/workspace/cleanup.sh"
-              "$GITHUB_ACTION_PATH/cleanup.sh"
-              "$RUNNER_WORKSPACE/$(basename $GITHUB_REPOSITORY)/cleanup.sh"
-              "$PWD/cleanup.sh"
-            )
-            
-            for alt_path in "${POSSIBLE_PATHS[@]}"; do
-              if [ -f "$alt_path" ]; then
-                echo "Found script at alternative location: $alt_path"
-                CLEANUP_SCRIPT="$alt_path"
-                break
-              fi
-            done
-            
-            # If still not found, try to create script from embedded content
-            if [ ! -f "$CLEANUP_SCRIPT" ]; then
-              echo "Recreating cleanup script in temp location"
-              # Here we're embedding a minimal cleanup.sh as a fallback
-              cat > /tmp/pse_cleanup.sh << 'CLEANUP_SCRIPT_EOF'
-#!/bin/bash
-# PSE GitHub Action - Minimal Cleanup Script
-# Compatible with both container and non-container environments
-
-# Enable strict error handling
-set -e
-
-# Enable debug mode if requested
-if [ "$DEBUG" = "true" ]; then
-  set -x
-fi
-
-# Detect if running in a container
-is_container() {
-  # Check multiple indicators of container environment
-  if [ -f "/.dockerenv" ] || [ -f "/run/.containerenv" ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Detected container environment"
-    return 0  # True in bash
-  else
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Detected non-container environment"
-    return 1  # False in bash
-  fi
-}
-
-# Function to execute a command with or without sudo based on environment
-exec_with_privileges() {
-  if is_container; then
-    # In container, try to run without sudo
-    "$@"
-  else
-    # On host, use sudo
-    sudo "$@"
-  fi
-}
-
-# Log with timestamp
-log() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-}
-
-log "Starting minimal PSE cleanup..."
-
-# Validate environment variables
-log "Checking environment variables"
-if [ -z "$API_URL" ] && [ -n "$PSE_API_URL" ]; then
-  export API_URL="$PSE_API_URL"
-  log "Using API_URL from previous step: $API_URL"
-fi
-
-if [ -z "$APP_TOKEN" ] && [ -n "$PSE_APP_TOKEN" ]; then
-  export APP_TOKEN="$PSE_APP_TOKEN"
-  log "Using APP_TOKEN from previous step"
-fi
-
-if [ -z "$SCAN_ID" ]; then
-  export SCAN_ID="cleanup_$(date +%s)_${GITHUB_RUN_ID:-unknown}"
-  log "Using generated SCAN_ID: $SCAN_ID"
-fi
-
-# Clean up environment
-log "Cleaning up PSE environment"
-
-# Reset proxy environment variables
-unset HTTPS_PROXY HTTP_PROXY NO_PROXY
-
-# Clean up iptables rules if on host
-if ! is_container; then
-  log "Cleaning up iptables rules"
-  if exec_with_privileges iptables -t nat -L pse >/dev/null 2>&1; then
-    exec_with_privileges iptables -t nat -D OUTPUT -j pse 2>/dev/null || true
-    exec_with_privileges iptables -t nat -F pse 2>/dev/null || true
-    exec_with_privileges iptables -t nat -X pse 2>/dev/null || true
-    log "iptables rules removed successfully"
-  else
-    log "No iptables rules to clean up"
-  fi
-fi
-
-log "PSE cleanup completed successfully"
-exit 0
-CLEANUP_SCRIPT_EOF
-              chmod +x /tmp/pse_cleanup.sh
-              CLEANUP_SCRIPT="/tmp/pse_cleanup.sh"
+            echo "Warning: Cleanup script not found at $CLEANUP_SCRIPT"
+            # Try workspace location
+            if [ -f "$GITHUB_WORKSPACE/cleanup.sh" ]; then
+              CLEANUP_SCRIPT="$GITHUB_WORKSPACE/cleanup.sh"
+            elif [ -f "$PWD/cleanup.sh" ]; then
+              CLEANUP_SCRIPT="$PWD/cleanup.sh"
+            else
+              echo "ERROR: Could not find cleanup script"
+              exit 1
             fi
           fi
           
-          # Make the script executable
-          if [ -f "$CLEANUP_SCRIPT" ]; then
-            chmod +x "$CLEANUP_SCRIPT" || true
-            echo "Executing: $CLEANUP_SCRIPT"
-            "$CLEANUP_SCRIPT"
-          else
-            echo "ERROR: Could not find or create cleanup script"
-            exit 1
-          fi
+          # Make script executable
+          chmod +x "$CLEANUP_SCRIPT" || true
+          
+          # Run cleanup script
+          echo "Executing: $CLEANUP_SCRIPT"
+          "$CLEANUP_SCRIPT"
         else
           echo "Running PSE setup..."
+          
           # First create scan in InvisiRisk Portal
           echo "Creating scan in InvisiRisk Portal..."
           SCAN_RESPONSE=$(curl -L -s -X POST "${{ inputs.api_url }}/utilityapi/v1/scan" \
             -H "Content-Type: application/json" \
-            -d "{\"api_key\": \"${{ inputs.app_token }}\"}")
+            -d "{\"api_key\": \"${{ inputs.app_token }}\"}") 
           
           # Print response for debugging (masking sensitive data)
           echo "API Response (masked): $(echo "$SCAN_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')"
@@ -187,103 +117,13 @@ CLEANUP_SCRIPT_EOF
             exit 1
           fi
           
-          # Define parse_json function
-          parse_json() {
-            local json="$1"
-            local field="$2"
-            
-            # Check if jq is available
-            if command -v jq >/dev/null 2>&1; then
-              # Use jq for more reliable JSON parsing
-              value=$(echo "$json" | jq -r ".$field" 2>/dev/null)
-              if [ "$value" != "null" ] && [ -n "$value" ]; then
-                echo "$value"
-                return 0
-              fi
-            fi
-            
-            # Fallback to grep-based extraction
-            value=$(echo "$json" | grep -o "\"$field\":[[:space:]]*\"[^\"]*\"" | cut -d'"' -f4)
-            echo "$value"
-          }
-          
-          # Function to parse nested JSON
-          parse_nested_json() {
-            local json="$1"
-            local parent_field="$2"
-            local child_field="$3"
-            
-            # Check if jq is available
-            if command -v jq >/dev/null 2>&1; then
-              # Use jq for more reliable JSON parsing
-              value=$(echo "$json" | jq -r ".$parent_field.$child_field" 2>/dev/null)
-              if [ "$value" != "null" ] && [ -n "$value" ]; then
-                echo "$value"
-                return 0
-              fi
-            fi
-            
-            # Fallback to extracting parent object first, then child field
-            parent_obj=$(echo "$json" | grep -o "\"$parent_field\":[[:space:]]*{[^}]*}" | sed "s/\"$parent_field\":[[:space:]]*//")
-            if [ -n "$parent_obj" ]; then
-              value=$(echo "$parent_obj" | grep -o "\"$child_field\":[[:space:]]*\"[^\"]*\"" | cut -d'"' -f4)
-              echo "$value"
-            fi
-          }
-          
-          # Try to extract scan_id using parse_json function
-          SCAN_ID=$(parse_json "$SCAN_RESPONSE" "scan_id")
-          
-          # If first pattern fails, try alternative field name
-          if [ -z "$SCAN_ID" ]; then
-            SCAN_ID=$(parse_json "$SCAN_RESPONSE" "id")
-          fi
-          
-          # If still not found, try to extract from data field
-          if [ -z "$SCAN_ID" ]; then
-            # Try to extract nested field
-            SCAN_ID=$(parse_nested_json "$SCAN_RESPONSE" "data" "id")
-          fi
-          
-          if [ -z "$SCAN_ID" ]; then
-            echo "Error: Failed to create scan object or extract scan ID from response"
-            exit 1
-          fi
-          
-          echo "Scan object created with ID: $SCAN_ID"
-          echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
-          echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
-          
-          # Check if running in a container
-          is_container() {
-            # Check multiple indicators of container environment
-            if [ -f "/.dockerenv" ] || [ -f "/run/.containerenv" ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; then
-              echo "Detected container environment"
-              return 0  # True in bash
-            else
-              echo "Detected non-container environment"
-              return 1  # False in bash
-            fi
-          }
-
-          # Function to execute a command with or without sudo based on environment
-          exec_with_privileges() {
-            if is_container; then
-              # In container, try to run without sudo
-              "$@"
-            else
-              # On host, use sudo
-              sudo "$@"
-            fi
-          }
-
           # Install jq if needed
           if ! command -v jq >/dev/null 2>&1; then
             echo "Installing jq for JSON parsing..."
             
-            # Check if sudo is available, install it if needed and we're in a container
-            if is_container && ! command -v sudo >/dev/null 2>&1; then
-              echo "sudo not found, installing it"
+            # Install sudo if needed
+            if [ "$PSE_IS_CONTAINER" = "true" ] && ! command -v sudo >/dev/null 2>&1; then
+              echo "sudo not found in container, installing it..."
               if command -v apt-get >/dev/null 2>&1; then
                 apt-get update -qq && apt-get install -y sudo
               elif command -v apk >/dev/null 2>&1; then
@@ -291,184 +131,57 @@ CLEANUP_SCRIPT_EOF
               elif command -v yum >/dev/null 2>&1; then
                 yum install -y sudo
               fi
-              echo "sudo installed successfully"
             fi
-
-            # Install jq with proper privilege management
+            
+            # Install jq with proper privileges
             if command -v apt-get >/dev/null 2>&1; then
               exec_with_privileges apt-get update -qq && exec_with_privileges apt-get install -y jq
             elif command -v apk >/dev/null 2>&1; then
               apk add --no-cache jq
             elif command -v yum >/dev/null 2>&1; then
               exec_with_privileges yum install -y jq
-            else
-              echo "Could not install jq, falling back to grep-based parsing"
-            fi
-          else
-            echo "jq is already installed"
-          fi
-          
-          # Safer script execution with path detection
-          echo "Looking for setup script..."
-          SETUP_SCRIPT="${{ github.action_path }}/setup.sh"
-          
-          # Check if the script exists at the expected location
-          if [ ! -f "$SETUP_SCRIPT" ]; then
-            echo "Warning: Script not found at $SETUP_SCRIPT"
-            # Try alternative locations
-            POSSIBLE_PATHS=(
-              "$GITHUB_WORKSPACE/setup.sh"
-              "/github/workspace/setup.sh"
-              "$GITHUB_ACTION_PATH/setup.sh"
-              "$RUNNER_WORKSPACE/$(basename $GITHUB_REPOSITORY)/setup.sh"
-              "$PWD/setup.sh"
-            )
-            
-            for alt_path in "${POSSIBLE_PATHS[@]}"; do
-              if [ -f "$alt_path" ]; then
-                echo "Found script at alternative location: $alt_path"
-                SETUP_SCRIPT="$alt_path"
-                break
-              fi
-            done
-            
-            # If still not found, try to create the script from embedded content
-            if [ ! -f "$SETUP_SCRIPT" ]; then
-              echo "Recreating setup script in temp location"
-              # Here we're embedding our setup.sh content as a fallback
-              cat > /tmp/pse_setup.sh << 'SETUP_SCRIPT_EOF'
-#!/bin/bash
-# PSE GitHub Action - Setup Script
-# This script configures the build environment to route HTTPS traffic through the PSE proxy
-# Compatible with both container and non-container environments
-
-# Enable strict error handling
-set -e
-
-# Enable debug mode if requested
-if [ "$DEBUG" = "true" ]; then
-  set -x
-fi
-
-# Detect if running in a container
-is_container() {
-  # Check multiple indicators of container environment
-  if [ -f "/.dockerenv" ] || [ -f "/run/.containerenv" ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; then
-    log "Detected container environment"
-    return 0  # True in bash
-  else
-    log "Detected non-container environment"
-    return 1  # False in bash
-  fi
-}
-
-# Function to execute a command with or without sudo based on environment
-exec_with_privileges() {
-  if is_container; then
-    # In container, try to run without sudo
-    "$@"
-  else
-    # On host, use sudo
-    sudo "$@"
-  fi
-}
-
-# Log with timestamp
-log() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-}
-
-# Error handler
-error_handler() {
-  log "ERROR: An error occurred on line $1"
-  exit 1
-}
-
-# Set up error trap
-trap 'error_handler $LINENO' ERR
-
-# Setup minimal environment
-log "Setting up minimal PSE environment..."
-
-# Make basic checks
-log "Checking environment variables..."
-for var in API_URL APP_TOKEN; do
-  if [ -z "${!var}" ]; then
-    log "Error: $var is not set"
-    exit 1
-  fi
-done
-
-# Install basic packages
-if command -v apk > /dev/null 2>&1; then
-  # Alpine Linux
-  log "Detected Alpine Linux"
-  apk add --no-cache iptables ca-certificates curl
-else
-  # Debian/Ubuntu
-  log "Detected Debian/Ubuntu"
-  if is_container && ! command -v sudo >/dev/null 2>&1; then
-    apt-get update
-    apt-get install -y sudo
-  fi
-  exec_with_privileges apt-get update
-  exec_with_privileges apt-get install -y iptables ca-certificates curl
-fi
-
-# Set up minimal proxy
-log "Setting up basic proxy environment..."
-if is_container; then
-  log "Container detected, using environment variables for proxying"
-  # In container, set environment variables for proxying
-  export HTTPS_PROXY="http://127.0.0.1:12345"
-  export HTTP_PROXY="http://127.0.0.1:12345"
-  export NO_PROXY="localhost,127.0.0.1"
-  log "Proxy environment variables set"
-else
-  # On host, use iptables
-  log "Setting up iptables rules"
-  exec_with_privileges iptables -t nat -N pse 2>/dev/null || true
-  exec_with_privileges iptables -t nat -A OUTPUT -j pse 2>/dev/null || true
-fi
-
-log "Minimal PSE environment setup complete"
-log "API_URL: $API_URL"
-log "SCAN_ID: ${SCAN_ID:-Not provided}"
-log "Setting PSE environment variables for cleanup step"
-
-# Save values for cleanup
-export PSE_API_URL="$API_URL"
-export PSE_APP_TOKEN="$APP_TOKEN"
-if [ -n "$PORTAL_URL" ]; then
-  export PSE_PORTAL_URL="$PORTAL_URL"
-fi
-
-# Save to GitHub environment
-if [ -n "$GITHUB_ENV" ]; then
-  echo "PSE_API_URL=$API_URL" >> $GITHUB_ENV
-  echo "PSE_APP_TOKEN=$APP_TOKEN" >> $GITHUB_ENV
-  if [ -n "$PORTAL_URL" ]; then
-    echo "PSE_PORTAL_URL=$PORTAL_URL" >> $GITHUB_ENV
-  fi
-  log "Environment variables saved to GITHUB_ENV"
-fi
-
-exit 0
-SETUP_SCRIPT_EOF
-              chmod +x /tmp/pse_setup.sh
-              SETUP_SCRIPT="/tmp/pse_setup.sh"
             fi
           fi
           
-          # Make the script executable
-          if [ -f "$SETUP_SCRIPT" ]; then
-            chmod +x "$SETUP_SCRIPT" || true
-            echo "Executing: $SETUP_SCRIPT"
-            "$SETUP_SCRIPT"
+          # Extract scan ID
+          if command -v jq >/dev/null 2>&1; then
+            SCAN_ID=$(echo "$SCAN_RESPONSE" | jq -r ".data.scan_id // .scan_id // .id // \"\"")
           else
-            echo "ERROR: Could not find or create setup script"
+            SCAN_ID=$(echo "$SCAN_RESPONSE" | grep -o '"scan_id":"[^"]*"' | cut -d'"' -f4)
+            if [ -z "$SCAN_ID" ]; then
+              SCAN_ID=$(echo "$SCAN_RESPONSE" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+            fi
+          fi
+          
+          if [ -z "$SCAN_ID" ]; then
+            echo "Error: Failed to extract scan ID from response"
             exit 1
           fi
+          
+          echo "Scan object created with ID: $SCAN_ID"
+          echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
+          echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
+          
+          # Setup script path
+          SETUP_SCRIPT="${{ github.action_path }}/setup.sh"
+          if [ ! -f "$SETUP_SCRIPT" ]; then
+            echo "Warning: Setup script not found at $SETUP_SCRIPT"
+            if [ -f "$GITHUB_WORKSPACE/setup.sh" ]; then
+              SETUP_SCRIPT="$GITHUB_WORKSPACE/setup.sh"
+            elif [ -f "$PWD/setup.sh" ]; then
+              SETUP_SCRIPT="$PWD/setup.sh"
+            else
+              echo "ERROR: Could not find setup script"
+              exit 1
+            fi
+          fi
+          
+          # Make script executable
+          chmod +x "$SETUP_SCRIPT" || true
+          
+          # Run setup script
+          echo "Executing: $SETUP_SCRIPT"
+          "$SETUP_SCRIPT"
         fi
       env:
         API_URL: ${{ inputs.cleanup == 'true' && env.PSE_API_URL || inputs.api_url }}
@@ -478,3 +191,4 @@ SETUP_SCRIPT_EOF
         DEBUG: ${{ inputs.debug }}
         TEST_MODE: ${{ inputs.test_mode }}
         GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
+        PSE_IS_CONTAINER: ${{ env.PSE_IS_CONTAINER }}
