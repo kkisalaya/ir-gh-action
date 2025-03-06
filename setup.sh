@@ -24,6 +24,19 @@ error_handler() {
 # Set up error trap
 trap 'error_handler $LINENO' ERR
 
+# Function to execute commands with or without sudo based on environment
+exec_cmd() {
+  if [ "$RUNNING_IN_CONTAINER" = "true" ]; then
+    # In container environment, run without sudo
+    log "Running in container environment, executing without sudo: $*"
+    "$@"
+  else
+    # In non-container environment, run with sudo
+    log "Running in non-container environment, executing with sudo: $*"
+    sudo "$@"
+  fi
+}
+
 # Validate required environment variables
 validate_env_vars() {
   local required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL" "GITHUB_TOKEN")
@@ -217,8 +230,15 @@ setup_dependencies() {
   else
     # Debian/Ubuntu
     log "Detected Debian/Ubuntu"
-    sudo apt-get update
-    sudo apt-get install -y iptables ca-certificates git curl jq
+    if [ "$RUNNING_IN_CONTAINER" = "true" ]; then
+      # In container, run without sudo
+      apt-get update
+      apt-get install -y iptables ca-certificates git curl jq
+    else
+      # Not in container, use sudo
+      sudo apt-get update
+      sudo apt-get install -y iptables ca-certificates git curl jq
+    fi
   fi
   
   log "Dependencies installed successfully"
@@ -245,7 +265,7 @@ pull_and_start_pse_container() {
   
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Logging in to ECR, attempt $ATTEMPT of $MAX_RETRIES"
-    if echo "$ECR_TOKEN" | sudo docker login --username "$ECR_USERNAME" --password-stdin "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com"; then
+    if echo "$ECR_TOKEN" | exec_cmd docker login --username "$ECR_USERNAME" --password-stdin "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com"; then
       log "ECR login successful"
       break
     else
@@ -276,7 +296,7 @@ pull_and_start_pse_container() {
   ATTEMPT=1
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Pulling PSE container, attempt $ATTEMPT of $MAX_RETRIES"
-    PULL_OUTPUT=$(sudo docker pull "$PSE_IMAGE" 2>&1)
+    PULL_OUTPUT=$(exec_cmd docker pull "$PSE_IMAGE" 2>&1)
     PULL_STATUS=$?
     
     if [ $PULL_STATUS -eq 0 ]; then
@@ -309,8 +329,8 @@ pull_and_start_pse_container() {
     
     # Try to get more information about the repository
     log "Attempting to get more information about the repository..."
-    sudo docker logout "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com" || true
-    echo "$ECR_TOKEN" | sudo docker login --username "$ECR_USERNAME" --password-stdin "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com"
+    exec_cmd docker logout "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com" || true
+    echo "$ECR_TOKEN" | exec_cmd docker login --username "$ECR_USERNAME" --password-stdin "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com"
     REPO_INFO=$(aws ecr describe-repositories --registry-id "$ECR_REGISTRY_ID" --region "$ECR_REGION" 2>&1 || echo "AWS CLI not available or not configured")
     log "Repository information: $REPO_INFO"
     
@@ -319,7 +339,7 @@ pull_and_start_pse_container() {
   
   # Start PSE container with required environment variables
   log "Starting PSE container"
-  sudo docker run -d --name pse \
+  exec_cmd docker run -d --name pse \
     -e PSE_DEBUG_FLAG="--alsologtostderr" \
     -e POLICY_LOG="t" \
     -e INVISIRISK_JWT_TOKEN="$APP_TOKEN" \
@@ -328,7 +348,7 @@ pull_and_start_pse_container() {
     "$PSE_IMAGE"
   
   # Get container IP for iptables configuration
-  PSE_IP=$(sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse)
+  PSE_IP=$(exec_cmd docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse)
   export PSE_IP="$PSE_IP"
   
   log "PSE container started with IP: $PSE_IP"
@@ -345,11 +365,11 @@ setup_iptables() {
   fi
   
   # Configure iptables to redirect HTTPS traffic
-  sudo iptables -t nat -N pse
-  sudo iptables -t nat -A OUTPUT -j pse
+  exec_cmd iptables -t nat -N pse
+  exec_cmd iptables -t nat -A OUTPUT -j pse
   
   # Redirect HTTPS traffic to PSE
-  sudo iptables -t nat -A pse -p tcp -m tcp --dport 443 -j DNAT --to-destination ${PSE_IP}:12345
+  exec_cmd iptables -t nat -A pse -p tcp -m tcp --dport 443 -j DNAT --to-destination ${PSE_IP}:12345
   
   log "iptables rules configured successfully"
 }
@@ -370,14 +390,14 @@ setup_certificates() {
   ATTEMPT=1
   
   # Create directory for extra CA certificates if it doesn't exist
-  sudo mkdir -p /usr/local/share/ca-certificates/extra
+  exec_cmd mkdir -p /usr/local/share/ca-certificates/extra
   log "Created directory for extra CA certificates"
   
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Fetching CA certificate, attempt $ATTEMPT of $MAX_RETRIES"
     if curl -L -k -s -o /tmp/pse.crt https://pse.invisirisk.com/ca; then
       # Copy to the proper location for Ubuntu/Debian
-      sudo cp /tmp/pse.crt /usr/local/share/ca-certificates/extra/pse.crt
+      exec_cmd cp /tmp/pse.crt /usr/local/share/ca-certificates/extra/pse.crt
       log "CA certificate successfully retrieved and copied to /usr/local/share/ca-certificates/extra/"
       break
     else
@@ -395,7 +415,7 @@ setup_certificates() {
   
   # Update CA certificates non-interactively
   log "Updating CA certificates..."
-  sudo update-ca-certificates
+  exec_cmd update-ca-certificates
   
   # Set the correct path for the installed certificate
   CA_CERT_PATH="/etc/ssl/certs/pse.crt"
@@ -607,9 +627,9 @@ main() {
   # If we're in debug mode, display container status
   if [ "$DEBUG" = "true" ]; then
     log "Container status:"
-    sudo docker ps -a | grep pse || true
+    exec_cmd docker ps -a | grep pse || true
     log "Container logs (last 10 lines):"
-    sudo docker logs --tail 10 pse 2>&1 || true
+    exec_cmd docker logs --tail 10 pse 2>&1 || true
   fi
   
   log "PSE container logs will be displayed at the end of the run"

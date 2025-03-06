@@ -24,6 +24,19 @@ error_handler() {
 # Set up error trap
 trap 'error_handler $LINENO' ERR
 
+# Function to execute commands with or without sudo based on environment
+exec_cmd() {
+  if [ "$RUNNING_IN_CONTAINER" = "true" ]; then
+    # In container environment, run without sudo
+    log "Running in container environment, executing without sudo: $*"
+    "$@"
+  else
+    # In non-container environment, run with sudo
+    log "Running in non-container environment, executing with sudo: $*"
+    sudo "$@"
+  fi
+}
+
 # Validate required environment variables
 validate_env_vars() {
   # Check for API_URL
@@ -191,7 +204,7 @@ display_container_logs() {
   fi
   
   # Check if container exists or existed
-  if ! sudo docker ps -a -q -f name="$container_name" > /dev/null 2>&1; then
+  if ! exec_cmd docker ps -a -q -f name="$container_name" > /dev/null 2>&1; then
     log "Container $container_name not found, cannot display logs"
     return 1
   fi
@@ -202,7 +215,7 @@ display_container_logs() {
   echo "================================================================="
   
   # Get all logs from the container
-  sudo docker logs "$container_name" 2>&1 || log "Failed to retrieve container logs"
+  exec_cmd docker logs "$container_name" 2>&1 || log "Failed to retrieve container logs"
   
   # Display another separator
   echo "================================================================="
@@ -224,9 +237,9 @@ cleanup_pse_container() {
   display_container_logs "pse"
   
   # Stop and remove PSE container if it exists
-  if sudo docker ps -a | grep -q pse; then
-    sudo docker stop pse 2>/dev/null || true
-    sudo docker rm pse 2>/dev/null || true
+  if exec_cmd docker ps -a | grep -q pse; then
+    exec_cmd docker stop pse 2>/dev/null || true
+    exec_cmd docker rm pse 2>/dev/null || true
     log "PSE container stopped and removed"
   else
     log "No PSE container to clean up"
@@ -244,10 +257,10 @@ cleanup_iptables() {
   fi
   
   # Remove iptables rules
-  if sudo iptables -t nat -L pse >/dev/null 2>&1; then
-    sudo iptables -t nat -D OUTPUT -j pse 2>/dev/null || true
-    sudo iptables -t nat -F pse 2>/dev/null || true
-    sudo iptables -t nat -X pse 2>/dev/null || true
+  if exec_cmd iptables -t nat -L pse >/dev/null 2>&1; then
+    exec_cmd iptables -t nat -D OUTPUT -j pse 2>/dev/null || true
+    exec_cmd iptables -t nat -F pse 2>/dev/null || true
+    exec_cmd iptables -t nat -X pse 2>/dev/null || true
     log "iptables rules removed successfully"
   else
     log "No iptables rules to clean up"
@@ -267,14 +280,14 @@ cleanup_certificates() {
   # Remove PSE certificate from the Ubuntu CA store
   if [ -f /usr/local/share/ca-certificates/extra/pse.crt ]; then
     log "Removing PSE certificate from CA store"
-    sudo rm -f /usr/local/share/ca-certificates/extra/pse.crt
-    sudo update-ca-certificates --fresh
+    exec_cmd rm -f /usr/local/share/ca-certificates/extra/pse.crt
+    exec_cmd update-ca-certificates --fresh
     log "PSE certificate removed"
   elif [ -f /etc/ssl/certs/pse.pem ]; then
     # Backward compatibility for old installations
     log "Removing legacy PSE certificate"
-    sudo rm -f /etc/ssl/certs/pse.pem
-    sudo update-ca-certificates --fresh
+    exec_cmd rm -f /etc/ssl/certs/pse.pem
+    exec_cmd update-ca-certificates --fresh
     log "Legacy PSE certificate removed"
   else
     log "No PSE certificate found to clean up"
