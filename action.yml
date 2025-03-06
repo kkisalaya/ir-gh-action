@@ -40,120 +40,64 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Run Setup or Cleanup
+    - name: Set Environment Variables
       shell: bash
       run: |
-        if [ "${{ inputs.cleanup }}" = "true" ]; then
-          echo "Running PSE cleanup..."
-          ${{ github.action_path }}/cleanup.sh
-        else
-          echo "Running PSE setup..."
-          # First create scan in InvisiRisk Portal
-          echo "Creating scan in InvisiRisk Portal..."
-          SCAN_RESPONSE=$(curl -L -s -X POST "${{ inputs.api_url }}/utilityapi/v1/scan" \
-            -H "Content-Type: application/json" \
-            -d "{\"api_key\": \"${{ inputs.app_token }}\"}")
-          
-          # Print response for debugging (masking sensitive data)
-          echo "API Response (masked): $(echo "$SCAN_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')"
-          
-          # Check if the response contains an error message
-          if echo "$SCAN_RESPONSE" | grep -q '"error"'; then
-            echo "Error received from API: $(echo "$SCAN_RESPONSE" | grep -o '"error":"[^"]*' | cut -d'"' -f4)"
-            exit 1
-          fi
-          
-          # Define parse_json function
-          parse_json() {
-            local json="$1"
-            local field="$2"
-            
-            # Check if jq is available
-            if command -v jq >/dev/null 2>&1; then
-              # Use jq for more reliable JSON parsing
-              value=$(echo "$json" | jq -r ".$field" 2>/dev/null)
-              if [ "$value" != "null" ] && [ -n "$value" ]; then
-                echo "$value"
-                return 0
-              fi
-            fi
-            
-            # Fallback to grep-based extraction
-            value=$(echo "$json" | grep -o "\"$field\":[[:space:]]*\"[^\"]*\"" | cut -d'"' -f4)
-            echo "$value"
-          }
-          
-          # Function to parse nested JSON
-          parse_nested_json() {
-            local json="$1"
-            local parent_field="$2"
-            local child_field="$3"
-            
-            # Check if jq is available
-            if command -v jq >/dev/null 2>&1; then
-              # Use jq for more reliable JSON parsing
-              value=$(echo "$json" | jq -r ".$parent_field.$child_field" 2>/dev/null)
-              if [ "$value" != "null" ] && [ -n "$value" ]; then
-                echo "$value"
-                return 0
-              fi
-            fi
-            
-            # Fallback to extracting parent object first, then child field
-            parent_obj=$(echo "$json" | grep -o "\"$parent_field\":[[:space:]]*{[^}]*}" | sed "s/\"$parent_field\":[[:space:]]*//")
-            if [ -n "$parent_obj" ]; then
-              value=$(echo "$parent_obj" | grep -o "\"$child_field\":[[:space:]]*\"[^\"]*\"" | cut -d'"' -f4)
-              echo "$value"
-            fi
-          }
-          
-          # Try to extract scan_id using parse_json function
-          SCAN_ID=$(parse_json "$SCAN_RESPONSE" "scan_id")
-          
-          # If first pattern fails, try alternative field name
-          if [ -z "$SCAN_ID" ]; then
-            SCAN_ID=$(parse_json "$SCAN_RESPONSE" "id")
-          fi
-          
-          # If still not found, try to extract from data field
-          if [ -z "$SCAN_ID" ]; then
-            # Try to extract nested field
-            SCAN_ID=$(parse_nested_json "$SCAN_RESPONSE" "data" "id")
-          fi
-          
-          if [ -z "$SCAN_ID" ]; then
-            echo "Error: Failed to create scan object or extract scan ID from response"
-            exit 1
-          fi
-          
-          echo "Scan object created with ID: $SCAN_ID"
-          echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
-          echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
-          
-          # Install jq if needed
-          if ! command -v jq >/dev/null 2>&1; then
-            echo "Installing jq for JSON parsing..."
-            if command -v apt-get >/dev/null 2>&1; then
-              sudo apt-get update -qq && sudo apt-get install -y jq
-            elif command -v apk >/dev/null 2>&1; then
-              apk add --no-cache jq
-            elif command -v yum >/dev/null 2>&1; then
-              sudo yum install -y jq
-            else
-              echo "Could not install jq, falling back to grep-based parsing"
-            fi
-          else
-            echo "jq is already installed"
-          fi
-          
-          # Run setup script
-          ${{ github.action_path }}/setup.sh
+        # Store environment variables for use in scripts
+        echo "GITHUB_ACTION_PATH=${{ github.action_path }}" >> $GITHUB_ENV
+        
+        # Store API credentials for both setup and cleanup
+        if [ "${{ inputs.cleanup }}" != "true" ]; then
+          # Only store these during setup phase
+          echo "PSE_API_URL=${{ inputs.api_url }}" >> $GITHUB_ENV
+          echo "PSE_APP_TOKEN=${{ inputs.app_token }}" >> $GITHUB_ENV
+          echo "PSE_PORTAL_URL=${{ inputs.portal_url || inputs.api_url }}" >> $GITHUB_ENV
         fi
+    
+    - name: Run Cleanup Process
+      if: ${{ inputs.cleanup == 'true' }}
+      shell: bash
+      run: |
+        echo "Running PSE cleanup..."
+        chmod +x ${{ github.action_path }}/cleanup.sh
+        ${{ github.action_path }}/cleanup.sh
       env:
-        API_URL: ${{ inputs.cleanup == 'true' && env.PSE_API_URL || inputs.api_url }}
-        APP_TOKEN: ${{ inputs.cleanup == 'true' && env.PSE_APP_TOKEN || inputs.app_token }}
-        PORTAL_URL: ${{ inputs.cleanup == 'true' && env.PSE_PORTAL_URL || inputs.portal_url || inputs.api_url }}
-        SCAN_ID: ${{ inputs.cleanup == 'true' && (inputs.scan_id || env.SCAN_ID) || env.SCAN_ID }}
+        API_URL: ${{ env.PSE_API_URL }}
+        APP_TOKEN: ${{ env.PSE_APP_TOKEN }}
+        PORTAL_URL: ${{ env.PSE_PORTAL_URL }}
+        SCAN_ID: ${{ inputs.scan_id || env.SCAN_ID }}
         DEBUG: ${{ inputs.debug }}
         TEST_MODE: ${{ inputs.test_mode }}
         GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
+    
+    - name: Create Scan
+      if: ${{ inputs.cleanup != 'true' }}
+      shell: bash
+      run: |
+        echo "Creating scan in InvisiRisk Portal..."
+        chmod +x ${{ github.action_path }}/create_scan.sh
+        ${{ github.action_path }}/create_scan.sh
+      env:
+        API_URL: ${{ inputs.api_url }}
+        APP_TOKEN: ${{ inputs.app_token }}
+        PORTAL_URL: ${{ inputs.portal_url || inputs.api_url }}
+        DEBUG: ${{ inputs.debug }}
+        TEST_MODE: ${{ inputs.test_mode }}
+        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
+    
+    - name: Run Setup Process
+      if: ${{ inputs.cleanup != 'true' }}
+      shell: bash
+      run: |
+        echo "Running PSE setup..."
+        chmod +x ${{ github.action_path }}/setup.sh
+        ${{ github.action_path }}/setup.sh
+      env:
+        API_URL: ${{ inputs.api_url }}
+        APP_TOKEN: ${{ inputs.app_token }}
+        PORTAL_URL: ${{ inputs.portal_url || inputs.api_url }}
+        SCAN_ID: ${{ env.SCAN_ID }}
+        DEBUG: ${{ inputs.debug }}
+        TEST_MODE: ${{ inputs.test_mode }}
+        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
+
