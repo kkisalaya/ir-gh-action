@@ -78,19 +78,56 @@ runs:
         if [ "${{ inputs.cleanup }}" = "true" ]; then
           echo "Running PSE cleanup..."
           
-          # Setup cleanup script path
-          CLEANUP_SCRIPT="${{ github.action_path }}/cleanup.sh"
-          if [ ! -f "$CLEANUP_SCRIPT" ]; then
-            echo "Warning: Cleanup script not found at $CLEANUP_SCRIPT"
-            # Try workspace location
-            if [ -f "$GITHUB_WORKSPACE/cleanup.sh" ]; then
-              CLEANUP_SCRIPT="$GITHUB_WORKSPACE/cleanup.sh"
-            elif [ -f "$PWD/cleanup.sh" ]; then
-              CLEANUP_SCRIPT="$PWD/cleanup.sh"
-            else
-              echo "ERROR: Could not find cleanup script"
-              exit 1
+          # Setup cleanup script path - try multiple possible locations
+          POSSIBLE_CLEANUP_PATHS=(
+            "${{ github.action_path }}/cleanup.sh"
+            "$GITHUB_WORKSPACE/cleanup.sh"
+            "$PWD/cleanup.sh"
+            "$RUNNER_WORKSPACE/$(basename $GITHUB_REPOSITORY)/cleanup.sh"
+            "/github/workspace/cleanup.sh"
+            "$(dirname $0)/cleanup.sh"
+            "./cleanup.sh"
+          )
+          
+          CLEANUP_SCRIPT=""
+          for path in "${POSSIBLE_CLEANUP_PATHS[@]}"; do
+            echo "Checking for cleanup script at: $path"
+            if [ -f "$path" ]; then
+              CLEANUP_SCRIPT="$path"
+              echo "Found cleanup script at: $CLEANUP_SCRIPT"
+              break
             fi
+          done
+          
+          if [ -z "$CLEANUP_SCRIPT" ]; then
+            # Last resort: create script from embedded content in repository
+            echo "Script not found in standard locations, looking for cleanup.sh in repository files"
+            
+            # Check common repository locations
+            REPO_PATHS=(
+              "$GITHUB_WORKSPACE"
+              "$RUNNER_WORKSPACE/$(basename $GITHUB_REPOSITORY)"
+              "/github/workspace"
+              "$PWD"
+            )
+            
+            for repo_path in "${REPO_PATHS[@]}"; do
+              echo "Searching in repository path: $repo_path"
+              if [ -d "$repo_path" ]; then
+                # Use find to locate cleanup.sh anywhere in the repository
+                FOUND_SCRIPT=$(find "$repo_path" -name "cleanup.sh" -type f -print -quit 2>/dev/null)
+                if [ -n "$FOUND_SCRIPT" ]; then
+                  CLEANUP_SCRIPT="$FOUND_SCRIPT"
+                  echo "Found cleanup script via search at: $CLEANUP_SCRIPT"
+                  break
+                fi
+              fi
+            done
+          fi
+          
+          if [ -z "$CLEANUP_SCRIPT" ]; then
+            echo "ERROR: Could not find cleanup script"
+            exit 1
           fi
           
           # Make script executable
@@ -162,18 +199,56 @@ runs:
           echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
           echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
           
-          # Setup script path
-          SETUP_SCRIPT="${{ github.action_path }}/setup.sh"
-          if [ ! -f "$SETUP_SCRIPT" ]; then
-            echo "Warning: Setup script not found at $SETUP_SCRIPT"
-            if [ -f "$GITHUB_WORKSPACE/setup.sh" ]; then
-              SETUP_SCRIPT="$GITHUB_WORKSPACE/setup.sh"
-            elif [ -f "$PWD/setup.sh" ]; then
-              SETUP_SCRIPT="$PWD/setup.sh"
-            else
-              echo "ERROR: Could not find setup script"
-              exit 1
+          # Setup script path - try multiple possible locations
+          POSSIBLE_SETUP_PATHS=(
+            "${{ github.action_path }}/setup.sh"
+            "$GITHUB_WORKSPACE/setup.sh"
+            "$PWD/setup.sh"
+            "$RUNNER_WORKSPACE/$(basename $GITHUB_REPOSITORY)/setup.sh"
+            "/github/workspace/setup.sh"
+            "$(dirname $0)/setup.sh"
+            "./setup.sh"
+          )
+          
+          SETUP_SCRIPT=""
+          for path in "${POSSIBLE_SETUP_PATHS[@]}"; do
+            echo "Checking for setup script at: $path"
+            if [ -f "$path" ]; then
+              SETUP_SCRIPT="$path"
+              echo "Found setup script at: $SETUP_SCRIPT"
+              break
             fi
+          done
+          
+          if [ -z "$SETUP_SCRIPT" ]; then
+            # Last resort: create script from embedded content in repository
+            echo "Script not found in standard locations, looking for setup.sh in repository files"
+            
+            # Check common repository locations
+            REPO_PATHS=(
+              "$GITHUB_WORKSPACE"
+              "$RUNNER_WORKSPACE/$(basename $GITHUB_REPOSITORY)"
+              "/github/workspace"
+              "$PWD"
+            )
+            
+            for repo_path in "${REPO_PATHS[@]}"; do
+              echo "Searching in repository path: $repo_path"
+              if [ -d "$repo_path" ]; then
+                # Use find to locate setup.sh anywhere in the repository
+                FOUND_SCRIPT=$(find "$repo_path" -name "setup.sh" -type f -print -quit 2>/dev/null)
+                if [ -n "$FOUND_SCRIPT" ]; then
+                  SETUP_SCRIPT="$FOUND_SCRIPT"
+                  echo "Found setup script via search at: $SETUP_SCRIPT"
+                  break
+                fi
+              fi
+            done
+          fi
+          
+          if [ -z "$SETUP_SCRIPT" ]; then
+            echo "ERROR: Could not find setup script"
+            exit 1
           fi
           
           # Make script executable
