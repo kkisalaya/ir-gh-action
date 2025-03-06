@@ -107,7 +107,9 @@ create_scan() {
     -d "{\"api_key\": \"$APP_TOKEN\"}")
   
   # Print response for debugging (masking sensitive data)
-  echo "API Response (masked): $(echo "$SCAN_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')"
+  # Use a cleaner format to avoid GitHub file command issues
+  masked_response=$(echo "$SCAN_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')
+  echo "API Response received (sensitive data masked)"
   
   # Check if the response contains an error message
   if echo "$SCAN_RESPONSE" | grep -q '"error"'; then
@@ -147,11 +149,19 @@ create_scan() {
 install_jq
 SCAN_ID=$(create_scan)
 
-# Output the scan ID - use GitHub's special syntax
+# Make sure SCAN_ID is exported for other scripts to use
+export SCAN_ID="$SCAN_ID"
+
+# Set GitHub environment variable
 if [ -n "$GITHUB_ENV" ]; then
-  echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
+  # Use proper GitHub environment file syntax
+  echo "SCAN_ID=$SCAN_ID" >> "$GITHUB_ENV"
+  echo "Setting SCAN_ID in GitHub environment: $SCAN_ID"
 fi
 
+# Set GitHub output variable
 if [ -n "$GITHUB_OUTPUT" ]; then
-  echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
+  # Use proper GitHub output file syntax with delimiter
+  echo "scan_id=$SCAN_ID" >> "$GITHUB_OUTPUT"
+  echo "Setting scan_id in GitHub output: $SCAN_ID"
 fi

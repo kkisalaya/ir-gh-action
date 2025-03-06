@@ -26,7 +26,7 @@ trap 'error_handler $LINENO' ERR
 
 # Validate required environment variables
 validate_env_vars() {
-  local required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL" "SCAN_ID" "GITHUB_TOKEN")
+  local required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL" "GITHUB_TOKEN")
   
   for var in "${required_vars[@]}"; do
     if [ -z "${!var}" ]; then
@@ -34,6 +34,26 @@ validate_env_vars() {
       exit 1
     fi
   done
+  
+  # Check for SCAN_ID separately - it might be in the environment or in a file
+  if [ -z "$SCAN_ID" ]; then
+    # Try to read from GITHUB_ENV if it exists
+    if [ -f "$GITHUB_ENV" ]; then
+      SCAN_ID=$(grep "^SCAN_ID=" "$GITHUB_ENV" | cut -d= -f2)
+      export SCAN_ID="$SCAN_ID"
+      log "Found SCAN_ID in GITHUB_ENV: $SCAN_ID"
+    fi
+  fi
+  
+  # If still not found, generate a random one
+  if [ -z "$SCAN_ID" ]; then
+    SCAN_ID="auto-$(date +%s)"
+    export SCAN_ID="$SCAN_ID"
+    log "Generated auto SCAN_ID: $SCAN_ID"
+    echo "SCAN_ID=$SCAN_ID" >> "$GITHUB_ENV"
+  else
+    log "Using SCAN_ID: $SCAN_ID"
+  fi
   
   log "Environment validation successful"
 }
