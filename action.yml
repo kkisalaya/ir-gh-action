@@ -40,12 +40,9 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Set Environment Variables
+    - name: Run Setup or Cleanup
       shell: bash
       run: |
-        # Store environment variables for use in scripts
-        echo "GITHUB_ACTION_PATH=${{ github.action_path }}" >> $GITHUB_ENV
-        
         # Store API credentials for both setup and cleanup
         if [ "${{ inputs.cleanup }}" != "true" ]; then
           # Only store these during setup phase
@@ -53,50 +50,26 @@ runs:
           echo "PSE_APP_TOKEN=${{ inputs.app_token }}" >> $GITHUB_ENV
           echo "PSE_PORTAL_URL=${{ inputs.portal_url || inputs.api_url }}" >> $GITHUB_ENV
         fi
-    
-    - name: Run Cleanup Process
-      if: ${{ inputs.cleanup == 'true' }}
-      shell: bash
-      run: |
-        echo "Running PSE cleanup..."
-        chmod +x ${{ github.action_path }}/cleanup.sh
-        ${{ github.action_path }}/cleanup.sh
+
+        if [ "${{ inputs.cleanup }}" = "true" ]; then
+          echo "Running PSE cleanup..."
+          chmod +x ${{ github.action_path }}/cleanup.sh
+          ${{ github.action_path }}/cleanup.sh
+        else
+          echo "Running PSE setup..."
+          # First create scan in InvisiRisk Portal
+          chmod +x ${{ github.action_path }}/create_scan.sh
+          ${{ github.action_path }}/create_scan.sh
+          
+          # Run setup script
+          chmod +x ${{ github.action_path }}/setup.sh
+          ${{ github.action_path }}/setup.sh
+        fi
       env:
-        API_URL: ${{ env.PSE_API_URL }}
-        APP_TOKEN: ${{ env.PSE_APP_TOKEN }}
-        PORTAL_URL: ${{ env.PSE_PORTAL_URL }}
-        SCAN_ID: ${{ inputs.scan_id || env.SCAN_ID }}
-        DEBUG: ${{ inputs.debug }}
-        TEST_MODE: ${{ inputs.test_mode }}
-        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
-    
-    - name: Create Scan
-      if: ${{ inputs.cleanup != 'true' }}
-      shell: bash
-      run: |
-        echo "Creating scan in InvisiRisk Portal..."
-        chmod +x ${{ github.action_path }}/create_scan.sh
-        ${{ github.action_path }}/create_scan.sh
-      env:
-        API_URL: ${{ inputs.api_url }}
-        APP_TOKEN: ${{ inputs.app_token }}
-        PORTAL_URL: ${{ inputs.portal_url || inputs.api_url }}
-        DEBUG: ${{ inputs.debug }}
-        TEST_MODE: ${{ inputs.test_mode }}
-        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
-    
-    - name: Run Setup Process
-      if: ${{ inputs.cleanup != 'true' }}
-      shell: bash
-      run: |
-        echo "Running PSE setup..."
-        chmod +x ${{ github.action_path }}/setup.sh
-        ${{ github.action_path }}/setup.sh
-      env:
-        API_URL: ${{ inputs.api_url }}
-        APP_TOKEN: ${{ inputs.app_token }}
-        PORTAL_URL: ${{ inputs.portal_url || inputs.api_url }}
-        SCAN_ID: ${{ env.SCAN_ID }}
+        API_URL: ${{ inputs.cleanup == 'true' && env.PSE_API_URL || inputs.api_url }}
+        APP_TOKEN: ${{ inputs.cleanup == 'true' && env.PSE_APP_TOKEN || inputs.app_token }}
+        PORTAL_URL: ${{ inputs.cleanup == 'true' && env.PSE_PORTAL_URL || inputs.portal_url || inputs.api_url }}
+        SCAN_ID: ${{ inputs.cleanup == 'true' && (inputs.scan_id || env.SCAN_ID) || env.SCAN_ID }}
         DEBUG: ${{ inputs.debug }}
         TEST_MODE: ${{ inputs.test_mode }}
         GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
