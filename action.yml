@@ -45,7 +45,16 @@ runs:
       run: |
         if [ "${{ inputs.cleanup }}" = "true" ]; then
           echo "Running PSE cleanup..."
-          ${{ github.action_path }}/cleanup.sh
+          
+          # Ensure script is executable
+          chmod +x "${{ github.action_path }}/cleanup.sh"
+          
+          # Copy script to a known location that will work in both container and non-container environments
+          cp "${{ github.action_path }}/cleanup.sh" /tmp/pse_cleanup.sh
+          chmod +x /tmp/pse_cleanup.sh
+          
+          # Run cleanup script from the known location
+          /tmp/pse_cleanup.sh
         else
           echo "Running PSE setup..."
           # First create scan in InvisiRisk Portal
@@ -130,15 +139,53 @@ runs:
           echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
           echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
           
+          # Check if running in a container
+          is_container() {
+            # Check multiple indicators of container environment
+            if [ -f "/.dockerenv" ] || [ -f "/run/.containerenv" ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; then
+              echo "Detected container environment"
+              return 0  # True in bash
+            else
+              echo "Detected non-container environment"
+              return 1  # False in bash
+            fi
+          }
+
+          # Function to execute a command with or without sudo based on environment
+          exec_with_privileges() {
+            if is_container; then
+              # In container, try to run without sudo
+              "$@"
+            else
+              # On host, use sudo
+              sudo "$@"
+            fi
+          }
+
           # Install jq if needed
           if ! command -v jq >/dev/null 2>&1; then
             echo "Installing jq for JSON parsing..."
+            
+            # Check if sudo is available, install it if needed and we're in a container
+            if is_container && ! command -v sudo >/dev/null 2>&1; then
+              echo "sudo not found, installing it"
+              if command -v apt-get >/dev/null 2>&1; then
+                apt-get update -qq && apt-get install -y sudo
+              elif command -v apk >/dev/null 2>&1; then
+                apk add --no-cache sudo
+              elif command -v yum >/dev/null 2>&1; then
+                yum install -y sudo
+              fi
+              echo "sudo installed successfully"
+            fi
+
+            # Install jq with proper privilege management
             if command -v apt-get >/dev/null 2>&1; then
-              sudo apt-get update -qq && sudo apt-get install -y jq
+              exec_with_privileges apt-get update -qq && exec_with_privileges apt-get install -y jq
             elif command -v apk >/dev/null 2>&1; then
               apk add --no-cache jq
             elif command -v yum >/dev/null 2>&1; then
-              sudo yum install -y jq
+              exec_with_privileges yum install -y jq
             else
               echo "Could not install jq, falling back to grep-based parsing"
             fi
@@ -146,8 +193,15 @@ runs:
             echo "jq is already installed"
           fi
           
-          # Run setup script
-          ${{ github.action_path }}/setup.sh
+          # Ensure script is executable
+          chmod +x "${{ github.action_path }}/setup.sh"
+          
+          # Copy script to a known location that will work in both container and non-container environments
+          cp "${{ github.action_path }}/setup.sh" /tmp/pse_setup.sh
+          chmod +x /tmp/pse_setup.sh
+          
+          # Run setup script from the known location
+          /tmp/pse_setup.sh
         fi
       env:
         API_URL: ${{ inputs.cleanup == 'true' && env.PSE_API_URL || inputs.api_url }}
