@@ -348,7 +348,11 @@ pull_and_start_pse_container() {
     "$PSE_IMAGE"
   
   # Get container IP for iptables configuration
-  PSE_IP=$(exec_cmd docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse)
+  PSE_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse 2>/dev/null)
+  if [ -z "$PSE_IP" ] && [ "$RUNNING_IN_CONTAINER" != "true" ]; then
+    # Try with sudo if not in container
+    PSE_IP=$(sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse 2>/dev/null)
+  fi
   export PSE_IP="$PSE_IP"
   
   log "PSE container started with IP: $PSE_IP"
@@ -369,7 +373,11 @@ setup_iptables() {
   exec_cmd iptables -t nat -A OUTPUT -j pse
   
   # Redirect HTTPS traffic to PSE
-  exec_cmd iptables -t nat -A pse -p tcp -m tcp --dport 443 -j DNAT --to-destination ${PSE_IP}:12345
+  if [ "$RUNNING_IN_CONTAINER" = "true" ]; then
+    iptables -t nat -A pse -p tcp -m tcp --dport 443 -j DNAT --to-destination "${PSE_IP}:12345"
+  else
+    sudo iptables -t nat -A pse -p tcp -m tcp --dport 443 -j DNAT --to-destination "${PSE_IP}:12345"
+  fi
   
   log "iptables rules configured successfully"
 }
