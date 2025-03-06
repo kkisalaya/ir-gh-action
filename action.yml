@@ -43,6 +43,31 @@ runs:
     - name: Run Setup or Cleanup
       shell: bash
       run: |
+        # Check if running inside a container
+        IS_CONTAINER="false"
+        
+        # Method 1: Check for .dockerenv file
+        if [ -f "/.dockerenv" ]; then
+          IS_CONTAINER="true"
+          echo "Detected container environment via /.dockerenv"
+        fi
+        
+        # Method 2: Check cgroup
+        if [ "$IS_CONTAINER" = "false" ] && grep -q docker /proc/1/cgroup 2>/dev/null; then
+          IS_CONTAINER="true"
+          echo "Detected container environment via cgroup"
+        fi
+        
+        # Method 3: Check for container-specific environment variables
+        if [ "$IS_CONTAINER" = "false" ] && [ -n "$KUBERNETES_SERVICE_HOST" ]; then
+          IS_CONTAINER="true"
+          echo "Detected container environment via Kubernetes environment variables"
+        fi
+        
+        # Set the environment variable
+        echo "RUNNING_IN_CONTAINER=$IS_CONTAINER" >> $GITHUB_ENV
+        echo "Running in container: $IS_CONTAINER"
+        
         # Store API credentials for both setup and cleanup
         if [ "${{ inputs.cleanup }}" != "true" ]; then
           # Only store these during setup phase
