@@ -57,18 +57,43 @@ runs:
           ${{ github.action_path }}/cleanup.sh
         else
           echo "Running PSE setup..."
+          
           # First create scan in InvisiRisk Portal
           echo "Creating scan in InvisiRisk Portal..."
-          chmod +x ${{ github.action_path }}/create_scan.sh
-          ${{ github.action_path }}/create_scan.sh
           
-          # Get SCAN_ID from environment if it was set by create_scan.sh
-          if [ -f "$GITHUB_ENV" ]; then
-            SCAN_ID=$(grep "^SCAN_ID=" "$GITHUB_ENV" | cut -d= -f2)
-            if [ -n "$SCAN_ID" ]; then
-              echo "Using SCAN_ID: $SCAN_ID"
-            fi
+          # Create the scan directly in action.yml
+          SCAN_RESPONSE=$(curl -L -s -X POST "${{ inputs.api_url }}/utilityapi/v1/scan" \
+            -H "Content-Type: application/json" \
+            -d "{\"api_key\": \"${{ inputs.app_token }}\"}")
+          
+          # Extract scan ID using grep
+          SCAN_ID=$(echo "$SCAN_RESPONSE" | grep -o '"scan_id":"[^"]*"' | cut -d'"' -f4)
+          
+          # If first pattern fails, try alternative field name
+          if [ -z "$SCAN_ID" ]; then
+            SCAN_ID=$(echo "$SCAN_RESPONSE" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
           fi
+          
+          # If still not found, try to extract from data field
+          if [ -z "$SCAN_ID" ]; then
+            # Try to extract from data.scan_id
+            SCAN_ID=$(echo "$SCAN_RESPONSE" | grep -o '"data":{[^}]*"scan_id":"[^"]*"' | grep -o '"scan_id":"[^"]*"' | cut -d'"' -f4)
+          fi
+          
+          # Try one more pattern
+          if [ -z "$SCAN_ID" ]; then
+            # Try to extract from data.id
+            SCAN_ID=$(echo "$SCAN_RESPONSE" | grep -o '"data":{[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+          fi
+          
+          if [ -z "$SCAN_ID" ]; then
+            echo "Error: Failed to extract scan ID from response"
+            exit 1
+          fi
+          
+          echo "Scan created with ID: $SCAN_ID"
+          echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
+          echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
           
           # Run setup script
           chmod +x ${{ github.action_path }}/setup.sh
