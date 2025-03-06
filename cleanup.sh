@@ -1,6 +1,7 @@
 #!/bin/bash
 # PSE GitHub Action - Cleanup Script
 # This script cleans up the PSE proxy configuration and signals the end of the build
+# Compatible with both container and non-container environments
 
 # Enable strict error handling
 set -e
@@ -9,6 +10,29 @@ set -e
 if [ "$DEBUG" = "true" ]; then
   set -x
 fi
+
+# Detect if running in a container
+is_container() {
+  # Check multiple indicators of container environment
+  if [ -f "/.dockerenv" ] || [ -f "/run/.containerenv" ] || grep -q 'docker\|lxc' /proc/1/cgroup 2>/dev/null; then
+    log "Detected container environment"
+    return 0  # True in bash
+  else
+    log "Detected non-container environment"
+    return 1  # False in bash
+  fi
+}
+
+# Function to execute a command with or without sudo based on environment
+exec_with_privileges() {
+  if is_container; then
+    # In container, try to run without sudo
+    "$@"
+  else
+    # On host, use sudo
+    sudo "$@"
+  fi
+}
 
 # Log with timestamp
 log() {
@@ -190,8 +214,16 @@ display_container_logs() {
     return 0
   fi
   
+  # Check if sudo is available, install it if needed and we're in a container
+  if is_container && ! command -v sudo >/dev/null 2>&1; then
+    log "sudo not found, installing it"
+    apt-get update
+    apt-get install -y sudo
+    log "sudo installed successfully"
+  fi
+
   # Check if container exists or existed
-  if ! sudo docker ps -a -q -f name="$container_name" > /dev/null 2>&1; then
+  if ! exec_with_privileges docker ps -a -q -f name="$container_name" > /dev/null 2>&1; then
     log "Container $container_name not found, cannot display logs"
     return 1
   fi
@@ -202,7 +234,7 @@ display_container_logs() {
   echo "================================================================="
   
   # Get all logs from the container
-  sudo docker logs "$container_name" 2>&1 || log "Failed to retrieve container logs"
+  exec_with_privileges docker logs "$container_name" 2>&1 || log "Failed to retrieve container logs"
   
   # Display another separator
   echo "================================================================="
@@ -224,9 +256,9 @@ cleanup_pse_container() {
   display_container_logs "pse"
   
   # Stop and remove PSE container if it exists
-  if sudo docker ps -a | grep -q pse; then
-    sudo docker stop pse 2>/dev/null || true
-    sudo docker rm pse 2>/dev/null || true
+  if exec_with_privileges docker ps -a | grep -q pse; then
+    exec_with_privileges docker stop pse 2>/dev/null || true
+    exec_with_privileges docker rm pse 2>/dev/null || true
     log "PSE container stopped and removed"
   else
     log "No PSE container to clean up"
@@ -244,10 +276,10 @@ cleanup_iptables() {
   fi
   
   # Remove iptables rules
-  if sudo iptables -t nat -L pse >/dev/null 2>&1; then
-    sudo iptables -t nat -D OUTPUT -j pse 2>/dev/null || true
-    sudo iptables -t nat -F pse 2>/dev/null || true
-    sudo iptables -t nat -X pse 2>/dev/null || true
+  if exec_with_privileges iptables -t nat -L pse >/dev/null 2>&1; then
+    exec_with_privileges iptables -t nat -D OUTPUT -j pse 2>/dev/null || true
+    exec_with_privileges iptables -t nat -F pse 2>/dev/null || true
+    exec_with_privileges iptables -t nat -X pse 2>/dev/null || true
     log "iptables rules removed successfully"
   else
     log "No iptables rules to clean up"
@@ -267,14 +299,14 @@ cleanup_certificates() {
   # Remove PSE certificate from the Ubuntu CA store
   if [ -f /usr/local/share/ca-certificates/extra/pse.crt ]; then
     log "Removing PSE certificate from CA store"
-    sudo rm -f /usr/local/share/ca-certificates/extra/pse.crt
-    sudo update-ca-certificates --fresh
+    exec_with_privileges rm -f /usr/local/share/ca-certificates/extra/pse.crt
+    exec_with_privileges update-ca-certificates --fresh
     log "PSE certificate removed"
   elif [ -f /etc/ssl/certs/pse.pem ]; then
     # Backward compatibility for old installations
     log "Removing legacy PSE certificate"
-    sudo rm -f /etc/ssl/certs/pse.pem
-    sudo update-ca-certificates --fresh
+    exec_with_privileges rm -f /etc/ssl/certs/pse.pem
+    exec_with_privileges update-ca-certificates --fresh
     log "Legacy PSE certificate removed"
   else
     log "No PSE certificate found to clean up"
