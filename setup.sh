@@ -3,6 +3,52 @@
 # This script configures the build environment to route HTTPS traffic through the PSE proxy
 # Compatible with both container and non-container environments
 
+# Find the location of scripts in the repository
+find_script() {
+  local script_name="$1"
+  local script_path=""
+  
+  # Check common locations
+  local possible_paths=(
+    "$GITHUB_ACTION_PATH/$script_name"
+    "$GITHUB_WORKSPACE/$script_name"
+    "$PWD/$script_name"
+    "$RUNNER_WORKSPACE/$(basename $GITHUB_REPOSITORY)/$script_name"
+    "/github/workspace/$script_name"
+    "$(dirname "$0")/$script_name"
+    "./$script_name"
+  )
+  
+  for path in "${possible_paths[@]}"; do
+    if [ -f "$path" ]; then
+      script_path="$path"
+      break
+    fi
+  done
+  
+  # If not found, search using find command
+  if [ -z "$script_path" ]; then
+    local repo_paths=(
+      "$GITHUB_WORKSPACE"
+      "$RUNNER_WORKSPACE/$(basename $GITHUB_REPOSITORY)"
+      "/github/workspace"
+      "$PWD"
+    )
+    
+    for repo_path in "${repo_paths[@]}"; do
+      if [ -d "$repo_path" ]; then
+        local found_script=$(find "$repo_path" -name "$script_name" -type f -print -quit 2>/dev/null)
+        if [ -n "$found_script" ]; then
+          script_path="$found_script"
+          break
+        fi
+      fi
+    done
+  fi
+  
+  echo "$script_path"
+}
+
 # Enable strict error handling
 set -e
 

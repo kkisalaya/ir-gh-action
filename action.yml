@@ -78,185 +78,42 @@ runs:
         if [ "${{ inputs.cleanup }}" = "true" ]; then
           echo "Running PSE cleanup..."
           
-          # Setup cleanup script path - try multiple possible locations
-          POSSIBLE_CLEANUP_PATHS=(
-            "${{ github.action_path }}/cleanup.sh"
-            "$GITHUB_WORKSPACE/cleanup.sh"
-            "$PWD/cleanup.sh"
-            "$RUNNER_WORKSPACE/$(basename $GITHUB_REPOSITORY)/cleanup.sh"
-            "/github/workspace/cleanup.sh"
-            "$(dirname $0)/cleanup.sh"
-            "./cleanup.sh"
-          )
+          # Store action path for scripts to use
+          echo "GITHUB_ACTION_PATH=${{ github.action_path }}" >> $GITHUB_ENV
           
-          CLEANUP_SCRIPT=""
-          for path in "${POSSIBLE_CLEANUP_PATHS[@]}"; do
-            echo "Checking for cleanup script at: $path"
-            if [ -f "$path" ]; then
-              CLEANUP_SCRIPT="$path"
-              echo "Found cleanup script at: $CLEANUP_SCRIPT"
-              break
-            fi
-          done
+          # Find and execute cleanup script
+          SCRIPT_PATH="${{ github.action_path }}/cleanup.sh"
           
-          if [ -z "$CLEANUP_SCRIPT" ]; then
-            # Last resort: create script from embedded content in repository
-            echo "Script not found in standard locations, looking for cleanup.sh in repository files"
-            
-            # Check common repository locations
-            REPO_PATHS=(
-              "$GITHUB_WORKSPACE"
-              "$RUNNER_WORKSPACE/$(basename $GITHUB_REPOSITORY)"
-              "/github/workspace"
-              "$PWD"
-            )
-            
-            for repo_path in "${REPO_PATHS[@]}"; do
-              echo "Searching in repository path: $repo_path"
-              if [ -d "$repo_path" ]; then
-                # Use find to locate cleanup.sh anywhere in the repository
-                FOUND_SCRIPT=$(find "$repo_path" -name "cleanup.sh" -type f -print -quit 2>/dev/null)
-                if [ -n "$FOUND_SCRIPT" ]; then
-                  CLEANUP_SCRIPT="$FOUND_SCRIPT"
-                  echo "Found cleanup script via search at: $CLEANUP_SCRIPT"
-                  break
-                fi
-              fi
-            done
-          fi
-          
-          if [ -z "$CLEANUP_SCRIPT" ]; then
-            echo "ERROR: Could not find cleanup script"
+          if [ -f "$SCRIPT_PATH" ]; then
+            echo "Found cleanup script at: $SCRIPT_PATH"
+            chmod +x "$SCRIPT_PATH" || true
+            "$SCRIPT_PATH"
+          else
+            echo "ERROR: Could not find cleanup script at $SCRIPT_PATH"
             exit 1
           fi
-          
-          # Make script executable
-          chmod +x "$CLEANUP_SCRIPT" || true
-          
-          # Run cleanup script
-          echo "Executing: $CLEANUP_SCRIPT"
-          "$CLEANUP_SCRIPT"
         else
           echo "Running PSE setup..."
           
-          # First create scan in InvisiRisk Portal
-          echo "Creating scan in InvisiRisk Portal..."
-          SCAN_RESPONSE=$(curl -L -s -X POST "${{ inputs.api_url }}/utilityapi/v1/scan" \
-            -H "Content-Type: application/json" \
-            -d "{\"api_key\": \"${{ inputs.app_token }}\"}") 
+          # Store action path for scripts to use
+          echo "GITHUB_ACTION_PATH=${{ github.action_path }}" >> $GITHUB_ENV
           
-          # Print response for debugging (masking sensitive data)
-          echo "API Response (masked): $(echo "$SCAN_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')"
+          # Store environment variables for cleanup step
+          echo "PSE_API_URL=${{ inputs.api_url }}" >> $GITHUB_ENV
+          echo "PSE_APP_TOKEN=${{ inputs.app_token }}" >> $GITHUB_ENV
+          echo "PSE_PORTAL_URL=${{ inputs.portal_url || inputs.api_url }}" >> $GITHUB_ENV
           
-          # Check if the response contains an error message
-          if echo "$SCAN_RESPONSE" | grep -q '"error"'; then
-            echo "Error received from API: $(echo "$SCAN_RESPONSE" | grep -o '"error":"[^"]*' | cut -d'"' -f4)"
-            exit 1
-          fi
+          # Find and execute setup script
+          SCRIPT_PATH="${{ github.action_path }}/setup.sh"
           
-          # Install jq if needed
-          if ! command -v jq >/dev/null 2>&1; then
-            echo "Installing jq for JSON parsing..."
-            
-            # Install sudo if needed
-            if [ "$PSE_IS_CONTAINER" = "true" ] && ! command -v sudo >/dev/null 2>&1; then
-              echo "sudo not found in container, installing it..."
-              if command -v apt-get >/dev/null 2>&1; then
-                apt-get update -qq && apt-get install -y sudo
-              elif command -v apk >/dev/null 2>&1; then
-                apk add --no-cache sudo
-              elif command -v yum >/dev/null 2>&1; then
-                yum install -y sudo
-              fi
-            fi
-            
-            # Install jq with proper privileges
-            if command -v apt-get >/dev/null 2>&1; then
-              exec_with_privileges apt-get update -qq && exec_with_privileges apt-get install -y jq
-            elif command -v apk >/dev/null 2>&1; then
-              apk add --no-cache jq
-            elif command -v yum >/dev/null 2>&1; then
-              exec_with_privileges yum install -y jq
-            fi
-          fi
-          
-          # Extract scan ID
-          if command -v jq >/dev/null 2>&1; then
-            SCAN_ID=$(echo "$SCAN_RESPONSE" | jq -r ".data.scan_id // .scan_id // .id // \"\"")
+          if [ -f "$SCRIPT_PATH" ]; then
+            echo "Found setup script at: $SCRIPT_PATH"
+            chmod +x "$SCRIPT_PATH" || true
+            "$SCRIPT_PATH"
           else
-            SCAN_ID=$(echo "$SCAN_RESPONSE" | grep -o '"scan_id":"[^"]*"' | cut -d'"' -f4)
-            if [ -z "$SCAN_ID" ]; then
-              SCAN_ID=$(echo "$SCAN_RESPONSE" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
-            fi
-          fi
-          
-          if [ -z "$SCAN_ID" ]; then
-            echo "Error: Failed to extract scan ID from response"
+            echo "ERROR: Could not find setup script at $SCRIPT_PATH"
             exit 1
           fi
-          
-          echo "Scan object created with ID: $SCAN_ID"
-          echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
-          echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
-          
-          # Setup script path - try multiple possible locations
-          POSSIBLE_SETUP_PATHS=(
-            "${{ github.action_path }}/setup.sh"
-            "$GITHUB_WORKSPACE/setup.sh"
-            "$PWD/setup.sh"
-            "$RUNNER_WORKSPACE/$(basename $GITHUB_REPOSITORY)/setup.sh"
-            "/github/workspace/setup.sh"
-            "$(dirname $0)/setup.sh"
-            "./setup.sh"
-          )
-          
-          SETUP_SCRIPT=""
-          for path in "${POSSIBLE_SETUP_PATHS[@]}"; do
-            echo "Checking for setup script at: $path"
-            if [ -f "$path" ]; then
-              SETUP_SCRIPT="$path"
-              echo "Found setup script at: $SETUP_SCRIPT"
-              break
-            fi
-          done
-          
-          if [ -z "$SETUP_SCRIPT" ]; then
-            # Last resort: create script from embedded content in repository
-            echo "Script not found in standard locations, looking for setup.sh in repository files"
-            
-            # Check common repository locations
-            REPO_PATHS=(
-              "$GITHUB_WORKSPACE"
-              "$RUNNER_WORKSPACE/$(basename $GITHUB_REPOSITORY)"
-              "/github/workspace"
-              "$PWD"
-            )
-            
-            for repo_path in "${REPO_PATHS[@]}"; do
-              echo "Searching in repository path: $repo_path"
-              if [ -d "$repo_path" ]; then
-                # Use find to locate setup.sh anywhere in the repository
-                FOUND_SCRIPT=$(find "$repo_path" -name "setup.sh" -type f -print -quit 2>/dev/null)
-                if [ -n "$FOUND_SCRIPT" ]; then
-                  SETUP_SCRIPT="$FOUND_SCRIPT"
-                  echo "Found setup script via search at: $SETUP_SCRIPT"
-                  break
-                fi
-              fi
-            done
-          fi
-          
-          if [ -z "$SETUP_SCRIPT" ]; then
-            echo "ERROR: Could not find setup script"
-            exit 1
-          fi
-          
-          # Make script executable
-          chmod +x "$SETUP_SCRIPT" || true
-          
-          # Run setup script
-          echo "Executing: $SETUP_SCRIPT"
-          "$SETUP_SCRIPT"
         fi
       env:
         API_URL: ${{ inputs.cleanup == 'true' && env.PSE_API_URL || inputs.api_url }}
