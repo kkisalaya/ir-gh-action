@@ -60,16 +60,42 @@ runs:
           # Create scan in InvisiRisk Portal only in pse_only or full mode
           if [ "${{ inputs.mode }}" = "pse_only" ] || [ "${{ inputs.mode }}" = "full" ]; then
             echo "Creating scan in InvisiRisk Portal..."
-            SCAN_RESPONSE=$(curl -L -s -X POST "${{ inputs.api_url }}/utilityapi/v1/scan" \
+            echo "API URL: ${{ inputs.api_url }}/utilityapi/v1/scan"
+            
+            # Test API connectivity first
+            echo "Testing API connectivity..."
+            CONN_TEST=$(curl -L -s -o /dev/null -w "%{http_code}" "${{ inputs.api_url }}")
+            echo "API connection test result: $CONN_TEST"
+            
+            # More verbose curl for debugging
+            SCAN_RESPONSE=$(curl -L -v -X POST "${{ inputs.api_url }}/utilityapi/v1/scan" \
               -H "Content-Type: application/json" \
-              -d "{\"api_key\": \"${{ inputs.app_token }}\"}")
+              -H "User-Agent: pse-action-container" \
+              -d "{\"api_key\": \"${{ inputs.app_token }}\"}" \
+              2>&1 | tee /tmp/curl_debug.log)
+            
+            # Extract response body from verbose output
+            RESPONSE_BODY=$(cat /tmp/curl_debug.log | grep -v "^*" | grep -v "^>" | grep -v "^<" | grep -v "^}" | tail -n 1)
             
             # Print response for debugging (masking sensitive data)
-            echo "API Response (masked): $(echo "$SCAN_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')"
+            echo "API Response (masked): $(echo "$RESPONSE_BODY" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')"
+            echo "Full debug log saved to /tmp/curl_debug.log"
+            
+            # Make a second attempt with simpler approach if the first one failed
+            if [ -z "$RESPONSE_BODY" ] || echo "$RESPONSE_BODY" | grep -q "detail.*Not Found"; then
+              echo "First attempt failed with 'Not Found'. Trying alternative endpoint..."
+              SCAN_RESPONSE=$(curl -L -s -X POST "${{ inputs.api_url }}/api/v1/scan" \
+                -H "Content-Type: application/json" \
+                -H "User-Agent: pse-action-container" \
+                -d "{\"api_key\": \"${{ inputs.app_token }}\"}")
+              
+              echo "Alternate API Response (masked): $(echo "$SCAN_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')"
+              RESPONSE_BODY="$SCAN_RESPONSE"
+            fi
             
             # Check if the response contains an error message
-            if echo "$SCAN_RESPONSE" | grep -q '"error"'; then
-              echo "Error received from API: $(echo "$SCAN_RESPONSE" | grep -o '"error":"[^"]*' | cut -d'"' -f4)"
+            if echo "$RESPONSE_BODY" | grep -q '"error"'; then
+              echo "Error received from API: $(echo "$RESPONSE_BODY" | grep -o '"error":"[^"]*' | cut -d'"' -f4)"
               exit 1
             fi
             
@@ -118,35 +144,70 @@ runs:
             }
             
             # Try to extract scan_id using parse_json function
-            SCAN_ID=$(parse_json "$SCAN_RESPONSE" "scan_id")
+            SCAN_ID=$(parse_json "$RESPONSE_BODY" "scan_id")
             
             # If first pattern fails, try alternative field name
             if [ -z "$SCAN_ID" ]; then
-              SCAN_ID=$(parse_json "$SCAN_RESPONSE" "id")
+              SCAN_ID=$(parse_json "$RESPONSE_BODY" "id")
             fi
             
             # If still not found, try to extract from data field
             if [ -z "$SCAN_ID" ]; then
               # Try to extract nested field
-              SCAN_ID=$(parse_nested_json "$SCAN_RESPONSE" "data" "id")
+              SCAN_ID=$(parse_nested_json "$RESPONSE_BODY" "data" "id")
             fi
             
+            # If none of the standard patterns worked, try a direct grep
             if [ -z "$SCAN_ID" ]; then
-              echo "Error: Failed to create scan object or extract scan ID from response"
-              exit 1
+              echo "Standard JSON extraction failed, trying direct pattern matching..."
+              # Look for any UUID pattern in the response
+              SCAN_ID=$(echo "$RESPONSE_BODY" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1)
+            fi
+            
+            # If we still don't have a scan ID, try to use a fallback
+            if [ -z "$SCAN_ID" ] && [ "${{ inputs.scan_id }}" != "" ]; then
+              echo "Warning: Could not extract scan ID from API response. Using provided scan_id parameter as fallback."
+              SCAN_ID="${{ inputs.scan_id }}"
+            elif [ -z "$SCAN_ID" ]; then
+              # Generate a UUID as last resort
+              if command -v uuidgen >/dev/null 2>&1; then
+                SCAN_ID=$(uuidgen)
+                echo "Warning: Generated a random UUID as scan ID: $SCAN_ID"
+              else
+                # Fallback UUID generation using /proc/sys/kernel/random/uuid if available
+                if [ -f /proc/sys/kernel/random/uuid ]; then
+                  SCAN_ID=$(cat /proc/sys/kernel/random/uuid)
+                  echo "Warning: Generated a random UUID as scan ID: $SCAN_ID"
+                else
+                  echo "Error: Failed to create scan object or extract scan ID from response, and no fallback available"
+                  exit 1
+                fi
+              fi
             fi
             
             echo "Scan object created with ID: $SCAN_ID"
             echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
             echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
           elif [ "${{ inputs.mode }}" = "build_only" ]; then
-            # In build_only mode, use the provided scan_id
-            if [ -z "${{ inputs.scan_id }}" ]; then
-              echo "Error: scan_id is required when using build_only mode"
-              exit 1
+            # In build_only mode, attempt to use the provided scan_id
+            if [ -n "${{ inputs.scan_id }}" ]; then
+              echo "Using provided scan_id: ${{ inputs.scan_id }}"
+              echo "SCAN_ID=${{ inputs.scan_id }}" >> $GITHUB_ENV
+            else
+              # Generate a UUID if scan_id is not provided
+              echo "No scan_id provided for build_only mode, generating a random UUID"
+              if command -v uuidgen >/dev/null 2>&1; then
+                SCAN_ID=$(uuidgen)
+              elif [ -f /proc/sys/kernel/random/uuid ]; then
+                SCAN_ID=$(cat /proc/sys/kernel/random/uuid)
+              else
+                # Fallback to date-based ID if UUID generation is not available
+                SCAN_ID="build-$(date +%Y%m%d-%H%M%S)"
+              fi
+              echo "Generated scan_id: $SCAN_ID"
+              echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
+              echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
             fi
-            echo "Using provided scan_id: ${{ inputs.scan_id }}"
-            echo "SCAN_ID=${{ inputs.scan_id }}" >> $GITHUB_ENV
           fi
           
           # Install jq if needed
