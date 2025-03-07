@@ -10,6 +10,9 @@ if [ "$DEBUG" = "true" ]; then
   set -x
 fi
 
+# Set default mode if not provided
+MODE=${MODE:-full}
+
 # Log with timestamp
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
@@ -24,9 +27,19 @@ error_handler() {
 # Set up error trap
 trap 'error_handler $LINENO' ERR
 
-# Validate required environment variables
+# Validate required environment variables based on mode
 validate_env_vars() {
-  local required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL" "SCAN_ID" "GITHUB_TOKEN")
+  local required_vars=()
+  
+  # Define required variables based on mode
+  if [ "$MODE" = "pse_only" ] || [ "$MODE" = "full" ]; then
+    required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL" "SCAN_ID" "GITHUB_TOKEN")
+  elif [ "$MODE" = "build_only" ]; then
+    required_vars=("SCAN_ID" "PROXY_IP" "GITHUB_TOKEN")
+  else 
+    log "ERROR: Invalid mode $MODE. Valid modes are 'pse_only', 'build_only', and 'full'"
+    exit 1
+  fi
   
   for var in "${required_vars[@]}"; do
     if [ -z "${!var}" ]; then
@@ -35,7 +48,7 @@ validate_env_vars() {
     fi
   done
   
-  log "Environment validation successful"
+  log "Environment validation successful for mode: $MODE"
 }
 
 # Function to parse JSON
@@ -310,8 +323,19 @@ pull_and_start_pse_container() {
   # Get container IP for iptables configuration
   PSE_IP=$(sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse)
   export PSE_IP="$PSE_IP"
+  export PROXY_IP="$PSE_IP"
+  
+  # Save the API values to environment for later use
+  echo "PSE_API_URL=$API_URL" >> $GITHUB_ENV
+  echo "PSE_APP_TOKEN=$APP_TOKEN" >> $GITHUB_ENV
+  echo "PSE_PORTAL_URL=$PORTAL_URL" >> $GITHUB_ENV
+  echo "PSE_PROXY_IP=$PSE_IP" >> $GITHUB_ENV
+  
+  # Also save the PSE proxy IP as an output parameter
+  echo "proxy_ip=$PSE_IP" >> $GITHUB_OUTPUT
   
   log "PSE container started with IP: $PSE_IP"
+  log "Proxy IP has been saved to GitHub environment as PSE_PROXY_IP"
 }
 
 # Function to set up iptables rules
@@ -324,14 +348,35 @@ setup_iptables() {
     return 0
   fi
   
+  # Configure iptables rules based on the mode
+  local proxy_port=12345
+  local target_ip
+  
+  # Determine which IP to use for redirection
+  if [ "$MODE" = "build_only" ]; then
+    # In build_only mode, use the provided PROXY_IP
+    target_ip="$PROXY_IP"
+    log "Using provided proxy IP for iptables: $target_ip"
+  else
+    # In other modes, use the local PSE container IP
+    target_ip="$PSE_IP"
+    log "Using local PSE container IP for iptables: $target_ip"
+  fi
+  
   # Configure iptables to redirect HTTPS traffic
-  sudo iptables -t nat -N pse
+  sudo iptables -t nat -N pse 2>/dev/null || true
+  sudo iptables -t nat -F pse 2>/dev/null || true
+  sudo iptables -t nat -D OUTPUT -j pse 2>/dev/null || true
   sudo iptables -t nat -A OUTPUT -j pse
   
   # Redirect HTTPS traffic to PSE
-  sudo iptables -t nat -A pse -p tcp -m tcp --dport 443 -j DNAT --to-destination ${PSE_IP}:12345
+  sudo iptables -t nat -A pse -p tcp -m tcp --dport 443 -j DNAT --to-destination ${target_ip}:${proxy_port}
   
-  log "iptables rules configured successfully"
+  # Add exceptions for local connections
+  sudo iptables -t nat -A pse -p tcp -d 127.0.0.1 --dport 443 -j ACCEPT
+  sudo iptables -t nat -A pse -p tcp -d localhost --dport 443 -j ACCEPT
+  
+  log "iptables rules configured successfully to redirect traffic to ${target_ip}:${proxy_port}"
 }
 
 # Function to set up certificates
@@ -353,9 +398,22 @@ setup_certificates() {
   sudo mkdir -p /usr/local/share/ca-certificates/extra
   log "Created directory for extra CA certificates"
   
+  # Determine the CA certificate source based on mode
+  local cert_source
+  
+  if [ "$MODE" = "build_only" ]; then
+    # In build_only mode, use the provided PROXY_IP
+    cert_source="https://${PROXY_IP}:8443/ca"
+    log "Using remote PSE proxy for CA certificate: $cert_source"
+  else
+    # In other modes, use the pse.invisirisk.com domain
+    cert_source="https://pse.invisirisk.com/ca"
+    log "Using main PSE domain for CA certificate: $cert_source"
+  fi
+  
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
-    log "Fetching CA certificate, attempt $ATTEMPT of $MAX_RETRIES"
-    if curl -L -k -s -o /tmp/pse.crt https://pse.invisirisk.com/ca; then
+    log "Fetching CA certificate from $cert_source, attempt $ATTEMPT of $MAX_RETRIES"
+    if curl -L -k -s -o /tmp/pse.crt "$cert_source"; then
       # Copy to the proper location for Ubuntu/Debian
       sudo cp /tmp/pse.crt /usr/local/share/ca-certificates/extra/pse.crt
       log "CA certificate successfully retrieved and copied to /usr/local/share/ca-certificates/extra/"
@@ -571,28 +629,57 @@ register_cleanup() {
 
 # Main execution
 main() {
-  log "Starting PSE GitHub Action setup"
+  log "Starting PSE GitHub Action setup in $MODE mode"
   
   validate_env_vars
   setup_dependencies
-  get_ecr_credentials
-  pull_and_start_pse_container
-  setup_iptables
-  setup_certificates
-  signal_build_start
-  register_cleanup
   
-  log "PSE GitHub Action setup completed successfully"
+  if [ "$MODE" = "pse_only" ]; then
+    # PSE container setup only
+    log "Running in PSE_ONLY mode - setting up PSE container only"
+    get_ecr_credentials
+    pull_and_start_pse_container
+    
+    log "PSE_ONLY mode setup completed successfully"
+    log "PSE container is running at IP: $PROXY_IP"
+    log "This IP address has been saved to GitHub environment as PSE_PROXY_IP"
+    log "Use this value in the build_only mode by setting mode: 'build_only' and proxy_ip: \${{ steps.<step-id>.outputs.proxy_ip }}"
+    
+  elif [ "$MODE" = "build_only" ]; then
+    # Build environment setup only
+    log "Running in BUILD_ONLY mode - configuring build environment only"
+    log "Using PSE proxy at IP: $PROXY_IP"
+    setup_iptables
+    setup_certificates
+    signal_build_start
+    register_cleanup
+    
+    log "BUILD_ONLY mode setup completed successfully"
+    
+  else
+    # Full setup (default)
+    log "Running in FULL mode - complete PSE setup"
+    get_ecr_credentials
+    pull_and_start_pse_container
+    setup_iptables
+    setup_certificates
+    signal_build_start
+    register_cleanup
+    
+    log "FULL mode setup completed successfully"
+  fi
   
   # If we're in debug mode, display container status
-  if [ "$DEBUG" = "true" ]; then
+  if [ "$DEBUG" = "true" ] && [ "$MODE" != "build_only" ]; then
     log "Container status:"
     sudo docker ps -a | grep pse || true
     log "Container logs (last 10 lines):"
     sudo docker logs --tail 10 pse 2>&1 || true
   fi
   
-  log "PSE container logs will be displayed at the end of the run"
+  if [ "$MODE" != "build_only" ]; then
+    log "PSE container logs will be displayed at the end of the run"
+  fi
 }
 
 # Execute main function

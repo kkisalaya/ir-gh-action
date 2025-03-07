@@ -32,6 +32,14 @@ inputs:
     description: 'Set to true to run cleanup instead of setup. This should be used at the end of your workflow.'
     required: false
     default: 'false'
+  mode:
+    description: 'The operation mode: "pse_only" sets up only the PSE container, "build_only" configures the build environment. Default is "full" which does both.'
+    required: false
+    default: 'full'
+  proxy_ip:
+    description: 'IP address of the PSE proxy container when using "build_only" mode. Required when mode is "build_only".'
+    required: false
+    default: ''
   scan_id:
     description: 'Scan ID from the setup step. Optional even for cleanup - if not provided, a default value will be used.'
     required: false
@@ -47,88 +55,99 @@ runs:
           echo "Running PSE cleanup..."
           ${{ github.action_path }}/cleanup.sh
         else
-          echo "Running PSE setup..."
-          # First create scan in InvisiRisk Portal
-          echo "Creating scan in InvisiRisk Portal..."
-          SCAN_RESPONSE=$(curl -L -s -X POST "${{ inputs.api_url }}/utilityapi/v1/scan" \
-            -H "Content-Type: application/json" \
-            -d "{\"api_key\": \"${{ inputs.app_token }}\"}")
+          echo "Running PSE setup in ${{ inputs.mode }} mode..."
           
-          # Print response for debugging (masking sensitive data)
-          echo "API Response (masked): $(echo "$SCAN_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')"
-          
-          # Check if the response contains an error message
-          if echo "$SCAN_RESPONSE" | grep -q '"error"'; then
-            echo "Error received from API: $(echo "$SCAN_RESPONSE" | grep -o '"error":"[^"]*' | cut -d'"' -f4)"
-            exit 1
-          fi
-          
-          # Define parse_json function
-          parse_json() {
-            local json="$1"
-            local field="$2"
+          # Create scan in InvisiRisk Portal only in pse_only or full mode
+          if [ "${{ inputs.mode }}" = "pse_only" ] || [ "${{ inputs.mode }}" = "full" ]; then
+            echo "Creating scan in InvisiRisk Portal..."
+            SCAN_RESPONSE=$(curl -L -s -X POST "${{ inputs.api_url }}/utilityapi/v1/scan" \
+              -H "Content-Type: application/json" \
+              -d "{\"api_key\": \"${{ inputs.app_token }}\"}")
             
-            # Check if jq is available
-            if command -v jq >/dev/null 2>&1; then
-              # Use jq for more reliable JSON parsing
-              value=$(echo "$json" | jq -r ".$field" 2>/dev/null)
-              if [ "$value" != "null" ] && [ -n "$value" ]; then
-                echo "$value"
-                return 0
-              fi
+            # Print response for debugging (masking sensitive data)
+            echo "API Response (masked): $(echo "$SCAN_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')"
+            
+            # Check if the response contains an error message
+            if echo "$SCAN_RESPONSE" | grep -q '"error"'; then
+              echo "Error received from API: $(echo "$SCAN_RESPONSE" | grep -o '"error":"[^"]*' | cut -d'"' -f4)"
+              exit 1
             fi
             
-            # Fallback to grep-based extraction
-            value=$(echo "$json" | grep -o "\"$field\":[[:space:]]*\"[^\"]*\"" | cut -d'"' -f4)
-            echo "$value"
-          }
-          
-          # Function to parse nested JSON
-          parse_nested_json() {
-            local json="$1"
-            local parent_field="$2"
-            local child_field="$3"
-            
-            # Check if jq is available
-            if command -v jq >/dev/null 2>&1; then
-              # Use jq for more reliable JSON parsing
-              value=$(echo "$json" | jq -r ".$parent_field.$child_field" 2>/dev/null)
-              if [ "$value" != "null" ] && [ -n "$value" ]; then
-                echo "$value"
-                return 0
+            # Define parse_json function
+            parse_json() {
+              local json="$1"
+              local field="$2"
+              
+              # Check if jq is available
+              if command -v jq >/dev/null 2>&1; then
+                # Use jq for more reliable JSON parsing
+                value=$(echo "$json" | jq -r ".$field" 2>/dev/null)
+                if [ "$value" != "null" ] && [ -n "$value" ]; then
+                  echo "$value"
+                  return 0
+                fi
               fi
-            fi
-            
-            # Fallback to extracting parent object first, then child field
-            parent_obj=$(echo "$json" | grep -o "\"$parent_field\":[[:space:]]*{[^}]*}" | sed "s/\"$parent_field\":[[:space:]]*//")
-            if [ -n "$parent_obj" ]; then
-              value=$(echo "$parent_obj" | grep -o "\"$child_field\":[[:space:]]*\"[^\"]*\"" | cut -d'"' -f4)
+              
+              # Fallback to grep-based extraction
+              value=$(echo "$json" | grep -o "\"$field\":[[:space:]]*\"[^\"]*\"" | cut -d'"' -f4)
               echo "$value"
+            }
+            
+            # Function to parse nested JSON
+            parse_nested_json() {
+              local json="$1"
+              local parent_field="$2"
+              local child_field="$3"
+              
+              # Check if jq is available
+              if command -v jq >/dev/null 2>&1; then
+                # Use jq for more reliable JSON parsing
+                value=$(echo "$json" | jq -r ".$parent_field.$child_field" 2>/dev/null)
+                if [ "$value" != "null" ] && [ -n "$value" ]; then
+                  echo "$value"
+                  return 0
+                fi
+              fi
+              
+              # Fallback to extracting parent object first, then child field
+              parent_obj=$(echo "$json" | grep -o "\"$parent_field\":[[:space:]]*{[^}]*}" | sed "s/\"$parent_field\":[[:space:]]*//")
+              if [ -n "$parent_obj" ]; then
+                value=$(echo "$parent_obj" | grep -o "\"$child_field\":[[:space:]]*\"[^\"]*\"" | cut -d'"' -f4)
+                echo "$value"
+              fi
+            }
+            
+            # Try to extract scan_id using parse_json function
+            SCAN_ID=$(parse_json "$SCAN_RESPONSE" "scan_id")
+            
+            # If first pattern fails, try alternative field name
+            if [ -z "$SCAN_ID" ]; then
+              SCAN_ID=$(parse_json "$SCAN_RESPONSE" "id")
             fi
-          }
-          
-          # Try to extract scan_id using parse_json function
-          SCAN_ID=$(parse_json "$SCAN_RESPONSE" "scan_id")
-          
-          # If first pattern fails, try alternative field name
-          if [ -z "$SCAN_ID" ]; then
-            SCAN_ID=$(parse_json "$SCAN_RESPONSE" "id")
+            
+            # If still not found, try to extract from data field
+            if [ -z "$SCAN_ID" ]; then
+              # Try to extract nested field
+              SCAN_ID=$(parse_nested_json "$SCAN_RESPONSE" "data" "id")
+            fi
+            
+            if [ -z "$SCAN_ID" ]; then
+              echo "Error: Failed to create scan object or extract scan ID from response"
+              exit 1
+            fi
+            
+            echo "Scan object created with ID: $SCAN_ID"
+            echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
+            echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
+          elif [ "${{ inputs.mode }}" = "build_only" ]; then
+            # In build_only mode, use the provided scan_id
+            if [ -z "${{ inputs.scan_id }}" ]; then
+              echo "Error: scan_id is required when using build_only mode"
+              exit 1
+            fi
+            echo "Using provided scan_id: ${{ inputs.scan_id }}"
+            echo "SCAN_ID=${{ inputs.scan_id }}" >> $GITHUB_ENV
           fi
-          
-          # If still not found, try to extract from data field
-          if [ -z "$SCAN_ID" ]; then
-            # Try to extract nested field
-            SCAN_ID=$(parse_nested_json "$SCAN_RESPONSE" "data" "id")
-          fi
-          
-          if [ -z "$SCAN_ID" ]; then
-            echo "Error: Failed to create scan object or extract scan ID from response"
-            exit 1
-          fi
-          
-          echo "Scan object created with ID: $SCAN_ID"
-          echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
-          echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
           
           # Install jq if needed
           if ! command -v jq >/dev/null 2>&1; then
@@ -146,7 +165,7 @@ runs:
             echo "jq is already installed"
           fi
           
-          # Run setup script
+          # Run setup script with appropriate mode
           ${{ github.action_path }}/setup.sh
         fi
       env:
@@ -157,3 +176,5 @@ runs:
         DEBUG: ${{ inputs.debug }}
         TEST_MODE: ${{ inputs.test_mode }}
         GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
+        MODE: ${{ inputs.mode }}
+        PROXY_IP: ${{ inputs.proxy_ip }}
