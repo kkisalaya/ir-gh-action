@@ -32,7 +32,9 @@ validate_env_vars() {
   local required_vars=()
   
   # Define required variables based on mode
-  if [ "$MODE" = "pse_only" ] || [ "$MODE" = "full" ]; then
+  if [ "$MODE" = "pse_only" ]; then
+    required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL" "GITHUB_TOKEN") # SCAN_ID not required for pse_only
+  elif [ "$MODE" = "full" ]; then
     required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL" "SCAN_ID" "GITHUB_TOKEN")
   elif [ "$MODE" = "build_only" ]; then
     required_vars=("SCAN_ID" "PROXY_IP" "GITHUB_TOKEN")
@@ -483,7 +485,14 @@ url_encode() {
 
 # Function to validate scan ID
 validate_scan_id() {
-  if [ -z "$SCAN_ID" ]; then
+  # In pse_only mode, we may not have a SCAN_ID and that's ok
+  if [ "$MODE" = "pse_only" ] && [ -z "$SCAN_ID" ]; then
+    log "NOTE: No SCAN_ID provided in pse_only mode - this is acceptable"
+    # Generate a temporary ID just for validation purposes
+    SCAN_ID="temp-proxy-$(date +%Y%m%d%H%M%S)"
+    log "Generated temporary SCAN_ID: $SCAN_ID"
+    return 0
+  elif [ -z "$SCAN_ID" ]; then
     log "ERROR: No SCAN_ID available"
     return 1
   fi
@@ -507,9 +516,13 @@ validate_scan_id() {
 signal_build_start() {
   log "Signaling build start"
   
-  # Check if in test mode
+  # Check if in test mode or pse_only mode
   if [ "$TEST_MODE" = "true" ]; then
     log "Running in TEST_MODE, skipping build start signal"
+    return 0
+  elif [ "$MODE" = "pse_only" ]; then
+    log "Running in PSE_ONLY mode, not sending build start signal"
+    log "Build start signal will be sent during the build phase"
     return 0
   fi
   
