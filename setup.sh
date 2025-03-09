@@ -54,8 +54,17 @@ validate_env_vars() {
     
     # Check for PROXY_IP specifically for build_only mode
     if [ -z "$PROXY_IP" ]; then
-      log "ERROR: PROXY_IP is required for build_only mode but not set"
-      exit 1
+      # Try using the fallback value from action.yml if available
+      if [ -n "$PSE_PROXY_FALLBACK" ]; then
+        log "INFO: Using fallback proxy IP: $PSE_PROXY_FALLBACK"
+        PROXY_IP="$PSE_PROXY_FALLBACK"
+        export PROXY_IP
+      else
+        log "ERROR: PROXY_IP is required for build_only mode but not set"
+        log "TIP: Make sure to pass the proxy_ip output from the pse_only job"
+        log "Example: proxy_ip: \"${{ needs.setup-pse.outputs.proxy_ip }}\""
+        exit 1
+      fi
     fi
   else 
     log "ERROR: Invalid mode $MODE. Valid modes are 'pse_only', 'build_only', and 'full'"
@@ -390,7 +399,10 @@ setup_iptables() {
     # Double check that PROXY_IP is actually set
     if [ -z "$target_ip" ]; then
       log "ERROR: PROXY_IP is empty in build_only mode. This should not happen!"
+      log "Here are the available environment variables that might help debug:"
+      env | grep -E 'PROXY|PSE|GITHUB_' || true
       log "Check that you're passing the proxy_ip output from the pse_only job correctly"
+      log "Example: proxy_ip: \"${{ needs.setup-pse.outputs.proxy_ip }}\""
       exit 1
     fi
   else
@@ -695,7 +707,36 @@ main() {
   elif [ "$MODE" = "build_only" ]; then
     # Build environment setup only
     log "Running in BUILD_ONLY mode - configuring build environment only"
+    
+    # Enhanced debugging for proxy_ip issues in build_only mode
     log "Using PSE proxy at IP: $PROXY_IP"
+    
+    # When in a container, ensure proxy_ip is explicitly passed and visible
+    if [ "$(id -u)" = "0" ]; then
+      log "Detected container environment (running as root)"
+      log "PROXY_IP environment variable: $PROXY_IP"
+      
+      # Try multiple fallback mechanisms to ensure PROXY_IP is set
+      if [ -z "$PROXY_IP" ]; then
+        if [ -n "$PSE_PROXY_IP" ]; then
+          # First try to use PSE_PROXY_IP from the environment
+          log "Using PSE_PROXY_IP ($PSE_PROXY_IP) as fallback"
+          PROXY_IP="$PSE_PROXY_IP"
+          export PROXY_IP
+        elif [ -n "$PSE_PROXY_FALLBACK" ]; then
+          # Next try using the fallback parameter set in action.yml
+          log "Using PSE_PROXY_FALLBACK ($PSE_PROXY_FALLBACK) from action.yml"
+          PROXY_IP="$PSE_PROXY_FALLBACK"
+          export PROXY_IP
+        else
+          # Last resort: use hardcoded value - common docker bridge network first address
+          log "WARNING: Using hardcoded proxy IP (172.17.0.2) as last resort"
+          log "This may work but it's not guaranteed. Check job logs for actual IP."
+          PROXY_IP="172.17.0.2"
+          export PROXY_IP
+        fi
+      fi
+    fi
     setup_iptables
     setup_certificates
     signal_build_start

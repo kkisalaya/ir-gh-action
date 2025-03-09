@@ -62,6 +62,18 @@ runs:
             echo "Debug: proxy_ip input value = '${{ inputs.proxy_ip }}'"
             echo "Debug: Current environment variables:"
             env | grep -E 'PROXY_IP|GITHUB_' || true
+            
+            # Additional steps for build_only mode to ensure proxy_ip is set
+            if [ -z "${{ inputs.proxy_ip }}" ]; then
+              echo "WARNING: proxy_ip input is empty in build_only mode"
+              echo "This may happen in container environments. Will try to resolve..."
+              
+              # Try to access the parameter directly from the outputs context
+              echo "PROXY_IP=${{ needs.setup-pse.outputs.proxy_ip }}" >> $GITHUB_ENV
+            else
+              # Explicitly set proxy_ip to ensure it's available in the container
+              echo "PROXY_IP=${{ inputs.proxy_ip }}" >> $GITHUB_ENV
+            fi
           fi
           
           # Create scan in InvisiRisk Portal only in build_only or full mode
@@ -268,5 +280,7 @@ runs:
         MODE: ${{ inputs.mode }}
         # For build_only mode, make sure proxy_ip is explicitly set
         PROXY_IP: ${{ inputs.proxy_ip }}
+        # Add a fallback environment variable for the proxy IP if the input is empty
+        PSE_PROXY_FALLBACK: ${{ inputs.mode == 'build_only' && inputs.proxy_ip == '' && '172.17.0.2' || '' }}
         # Enable debug for build_only mode to help troubleshoot
         DEBUG: ${{ (inputs.debug == 'true' || inputs.mode == 'build_only') && 'true' || 'false' }}
