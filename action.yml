@@ -57,8 +57,8 @@ runs:
         else
           echo "Running PSE setup in ${{ inputs.mode }} mode..."
           
-          # Create scan in InvisiRisk Portal only in pse_only or full mode
-          if [ "${{ inputs.mode }}" = "pse_only" ] || [ "${{ inputs.mode }}" = "full" ]; then
+          # Create scan in InvisiRisk Portal only in build_only or full mode
+          if [ "${{ inputs.mode }}" = "build_only" ] || [ "${{ inputs.mode }}" = "full" ]; then
             echo "Creating scan in InvisiRisk Portal..."
             echo "API URL: ${{ inputs.api_url }}/utilityapi/v1/scan"
             
@@ -195,25 +195,20 @@ runs:
             echo "Scan object created with ID: $SCAN_ID"
             echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
             echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
-          elif [ "${{ inputs.mode }}" = "build_only" ]; then
-            # In build_only mode, attempt to use the provided scan_id
+          elif [ "${{ inputs.mode }}" = "pse_only" ]; then
+            # In pse_only mode, we don't need to create a scan, just generate a dummy ID
+            # We'll use this ID only for connecting to the PSE proxy
+            echo "PSE_ONLY mode doesn't need an actual scan, setting up proxy only"
+            # Generate a temporary ID for tracking purposes
             if [ -n "${{ inputs.scan_id }}" ]; then
               echo "Using provided scan_id: ${{ inputs.scan_id }}"
               echo "SCAN_ID=${{ inputs.scan_id }}" >> $GITHUB_ENV
+              echo "scan_id=${{ inputs.scan_id }}" >> $GITHUB_OUTPUT
             else
-              # Generate a UUID if scan_id is not provided
-              echo "No scan_id provided for build_only mode, generating a random UUID"
-              if command -v uuidgen >/dev/null 2>&1; then
-                SCAN_ID=$(uuidgen)
-              elif [ -f /proc/sys/kernel/random/uuid ]; then
-                SCAN_ID=$(cat /proc/sys/kernel/random/uuid)
-              else
-                # Fallback to date-based ID if UUID generation is not available
-                SCAN_ID="build-$(date +%Y%m%d-%H%M%S)"
-              fi
-              echo "Generated scan_id: $SCAN_ID"
-              echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
-              echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
+              TEMP_ID="proxy-$(date +%Y%m%d-%H%M%S)"
+              echo "Generated temporary ID: $TEMP_ID"
+              echo "SCAN_ID=$TEMP_ID" >> $GITHUB_ENV
+              echo "scan_id=$TEMP_ID" >> $GITHUB_OUTPUT
             fi
           fi
           
