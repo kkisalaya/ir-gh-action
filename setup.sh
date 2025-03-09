@@ -5,8 +5,10 @@
 # Enable strict error handling
 set -e
 
-# Enable debug mode if requested
-if [ "$DEBUG" = "true" ]; then
+# Enable debug mode if requested or forced
+if [ "$DEBUG" = "true" ] || [ "$DEBUG_FORCE" = "true" ]; then
+  DEBUG="true"
+  export DEBUG
   set -x
 fi
 

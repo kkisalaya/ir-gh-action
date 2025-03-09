@@ -68,8 +68,10 @@ runs:
               echo "WARNING: proxy_ip input is empty in build_only mode"
               echo "This may happen in container environments. Will try to resolve..."
               
-              # Try to access the parameter directly from the outputs context
-              echo "PROXY_IP=${{ needs.setup-pse.outputs.proxy_ip }}" >> $GITHUB_ENV
+              # Cannot access workflow job outputs directly in actions
+              # Use hardcoded fallback if no proxy_ip is provided
+              echo "PROXY_IP=172.17.0.2" >> $GITHUB_ENV
+              echo "WARNING: Using fallback proxy IP 172.17.0.2 - check logs for actual IP"
             else
               # Explicitly set proxy_ip to ensure it's available in the container
               echo "PROXY_IP=${{ inputs.proxy_ip }}" >> $GITHUB_ENV
@@ -282,5 +284,6 @@ runs:
         PROXY_IP: ${{ inputs.proxy_ip }}
         # Add a fallback environment variable for the proxy IP if the input is empty
         PSE_PROXY_FALLBACK: ${{ inputs.mode == 'build_only' && inputs.proxy_ip == '' && '172.17.0.2' || '' }}
-        # Enable debug for build_only mode to help troubleshoot
-        DEBUG: ${{ (inputs.debug == 'true' || inputs.mode == 'build_only') && 'true' || 'false' }}
+        # Debug mode setting
+        # Set to true if debug flag is true or in build_only mode
+        DEBUG_FORCE: ${{ inputs.mode == 'build_only' && 'true' || 'false' }}
