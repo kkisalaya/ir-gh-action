@@ -27,6 +27,17 @@ error_handler() {
 # Set up error trap
 trap 'error_handler $LINENO' ERR
 
+# Helper function to run commands with or without sudo based on environment
+run_with_privilege() {
+  if [ "$(id -u)" = "0" ]; then
+    # Running as root (common in containers), execute directly
+    "$@"
+  else
+    # Not running as root, use sudo
+    sudo "$@"
+  fi
+}
+
 # Validate required environment variables based on mode
 validate_env_vars() {
   local required_vars=()
@@ -208,12 +219,17 @@ setup_dependencies() {
   if command -v apk > /dev/null 2>&1; then
     # Alpine Linux
     log "Detected Alpine Linux"
-    apk add --no-cache iptables ca-certificates git curl docker jq
+    # Alpine typically runs as root in containers
+    if [ "$(id -u)" = "0" ]; then
+      apk add --no-cache iptables ca-certificates git curl docker jq
+    else
+      sudo apk add --no-cache iptables ca-certificates git curl docker jq
+    fi
   else
     # Debian/Ubuntu
     log "Detected Debian/Ubuntu"
-    sudo apt-get update
-    sudo apt-get install -y iptables ca-certificates git curl jq
+    run_with_privilege apt-get update
+    run_with_privilege apt-get install -y iptables ca-certificates git curl jq
   fi
   
   log "Dependencies installed successfully"
@@ -240,7 +256,7 @@ pull_and_start_pse_container() {
   
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Logging in to ECR, attempt $ATTEMPT of $MAX_RETRIES"
-    if echo "$ECR_TOKEN" | sudo docker login --username "$ECR_USERNAME" --password-stdin "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com"; then
+    if echo "$ECR_TOKEN" | run_with_privilege docker login --username "$ECR_USERNAME" --password-stdin "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com"; then
       log "ECR login successful"
       break
     else
@@ -271,7 +287,7 @@ pull_and_start_pse_container() {
   ATTEMPT=1
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Pulling PSE container, attempt $ATTEMPT of $MAX_RETRIES"
-    PULL_OUTPUT=$(sudo docker pull "$PSE_IMAGE" 2>&1)
+    PULL_OUTPUT=$(run_with_privilege docker pull "$PSE_IMAGE" 2>&1)
     PULL_STATUS=$?
     
     if [ $PULL_STATUS -eq 0 ]; then
@@ -304,8 +320,8 @@ pull_and_start_pse_container() {
     
     # Try to get more information about the repository
     log "Attempting to get more information about the repository..."
-    sudo docker logout "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com" || true
-    echo "$ECR_TOKEN" | sudo docker login --username "$ECR_USERNAME" --password-stdin "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com"
+    run_with_privilege docker logout "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com" || true
+    echo "$ECR_TOKEN" | run_with_privilege docker login --username "$ECR_USERNAME" --password-stdin "$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com"
     REPO_INFO=$(aws ecr describe-repositories --registry-id "$ECR_REGISTRY_ID" --region "$ECR_REGION" 2>&1 || echo "AWS CLI not available or not configured")
     log "Repository information: $REPO_INFO"
     
@@ -314,7 +330,7 @@ pull_and_start_pse_container() {
   
   # Start PSE container with required environment variables
   log "Starting PSE container"
-  sudo docker run -d --name pse \
+  run_with_privilege docker run -d --name pse \
     -e PSE_DEBUG_FLAG="--alsologtostderr" \
     -e POLICY_LOG="t" \
     -e INVISIRISK_JWT_TOKEN="$APP_TOKEN" \
@@ -323,7 +339,7 @@ pull_and_start_pse_container() {
     "$PSE_IMAGE"
   
   # Get container IP for iptables configuration
-  PSE_IP=$(sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse)
+  PSE_IP=$(run_with_privilege docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse)
   export PSE_IP="$PSE_IP"
   export PROXY_IP="$PSE_IP"
   
@@ -366,17 +382,17 @@ setup_iptables() {
   fi
   
   # Configure iptables to redirect HTTPS traffic
-  sudo iptables -t nat -N pse 2>/dev/null || true
-  sudo iptables -t nat -F pse 2>/dev/null || true
-  sudo iptables -t nat -D OUTPUT -j pse 2>/dev/null || true
-  sudo iptables -t nat -A OUTPUT -j pse
+  run_with_privilege iptables -t nat -N pse 2>/dev/null || true
+  run_with_privilege iptables -t nat -F pse 2>/dev/null || true
+  run_with_privilege iptables -t nat -D OUTPUT -j pse 2>/dev/null || true
+  run_with_privilege iptables -t nat -A OUTPUT -j pse
   
   # Redirect HTTPS traffic to PSE
-  sudo iptables -t nat -A pse -p tcp -m tcp --dport 443 -j DNAT --to-destination ${target_ip}:${proxy_port}
+  run_with_privilege iptables -t nat -A pse -p tcp -m tcp --dport 443 -j DNAT --to-destination ${target_ip}:${proxy_port}
   
   # Add exceptions for local connections
-  sudo iptables -t nat -A pse -p tcp -d 127.0.0.1 --dport 443 -j ACCEPT
-  sudo iptables -t nat -A pse -p tcp -d localhost --dport 443 -j ACCEPT
+  run_with_privilege iptables -t nat -A pse -p tcp -d 127.0.0.1 --dport 443 -j ACCEPT
+  run_with_privilege iptables -t nat -A pse -p tcp -d localhost --dport 443 -j ACCEPT
   
   log "iptables rules configured successfully to redirect traffic to ${target_ip}:${proxy_port}"
 }
@@ -397,7 +413,7 @@ setup_certificates() {
   ATTEMPT=1
   
   # Create directory for extra CA certificates if it doesn't exist
-  sudo mkdir -p /usr/local/share/ca-certificates/extra
+  run_with_privilege mkdir -p /usr/local/share/ca-certificates/extra
   log "Created directory for extra CA certificates"
   
   # Determine the CA certificate source based on mode
@@ -417,7 +433,7 @@ setup_certificates() {
     log "Fetching CA certificate from $cert_source, attempt $ATTEMPT of $MAX_RETRIES"
     if curl -L -k -s -o /tmp/pse.crt "$cert_source"; then
       # Copy to the proper location for Ubuntu/Debian
-      sudo cp /tmp/pse.crt /usr/local/share/ca-certificates/extra/pse.crt
+      run_with_privilege cp /tmp/pse.crt /usr/local/share/ca-certificates/extra/pse.crt
       log "CA certificate successfully retrieved and copied to /usr/local/share/ca-certificates/extra/"
       break
     else
@@ -435,7 +451,7 @@ setup_certificates() {
   
   # Update CA certificates non-interactively
   log "Updating CA certificates..."
-  sudo update-ca-certificates
+  run_with_privilege update-ca-certificates
   
   # Set the correct path for the installed certificate
   CA_CERT_PATH="/etc/ssl/certs/pse.crt"
@@ -685,9 +701,9 @@ main() {
   # If we're in debug mode, display container status
   if [ "$DEBUG" = "true" ] && [ "$MODE" != "build_only" ]; then
     log "Container status:"
-    sudo docker ps -a | grep pse || true
+    run_with_privilege docker ps -a | grep pse || true
     log "Container logs (last 10 lines):"
-    sudo docker logs --tail 10 pse 2>&1 || true
+    run_with_privilege docker logs --tail 10 pse 2>&1 || true
   fi
   
   if [ "$MODE" != "build_only" ]; then
