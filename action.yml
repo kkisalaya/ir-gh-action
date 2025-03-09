@@ -57,6 +57,13 @@ runs:
         else
           echo "Running PSE setup in ${{ inputs.mode }} mode..."
           
+          # Debug the inputs value when in build_only mode
+          if [ "${{ inputs.mode }}" = "build_only" ]; then
+            echo "Debug: proxy_ip input value = '${{ inputs.proxy_ip }}'"
+            echo "Debug: Current environment variables:"
+            env | grep -E 'PROXY_IP|GITHUB_' || true
+          fi
+          
           # Create scan in InvisiRisk Portal only in build_only or full mode
           if [ "${{ inputs.mode }}" = "build_only" ] || [ "${{ inputs.mode }}" = "full" ]; then
             echo "Creating scan in InvisiRisk Portal..."
@@ -259,4 +266,7 @@ runs:
         TEST_MODE: ${{ inputs.test_mode }}
         GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
         MODE: ${{ inputs.mode }}
+        # For build_only mode, make sure proxy_ip is explicitly set
         PROXY_IP: ${{ inputs.proxy_ip }}
+        # Enable debug for build_only mode to help troubleshoot
+        DEBUG: ${{ (inputs.debug == 'true' || inputs.mode == 'build_only') && 'true' || 'false' }}

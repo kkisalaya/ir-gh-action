@@ -48,7 +48,15 @@ validate_env_vars() {
   elif [ "$MODE" = "full" ]; then
     required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL" "SCAN_ID" "GITHUB_TOKEN")
   elif [ "$MODE" = "build_only" ]; then
-    required_vars=("SCAN_ID" "PROXY_IP" "GITHUB_TOKEN")
+    required_vars=("SCAN_ID" "GITHUB_TOKEN")
+    # Debug PROXY_IP value
+    log "Debug: PROXY_IP environment variable value: '$PROXY_IP'"
+    
+    # Check for PROXY_IP specifically for build_only mode
+    if [ -z "$PROXY_IP" ]; then
+      log "ERROR: PROXY_IP is required for build_only mode but not set"
+      exit 1
+    fi
   else 
     log "ERROR: Invalid mode $MODE. Valid modes are 'pse_only', 'build_only', and 'full'"
     exit 1
@@ -352,6 +360,9 @@ pull_and_start_pse_container() {
   # Also save the PSE proxy IP as an output parameter
   echo "proxy_ip=$PSE_IP" >> $GITHUB_OUTPUT
   
+  # Double check that the proxy IP has been properly set as output
+  log "Set proxy_ip output parameter to: $PSE_IP"
+  
   log "PSE container started with IP: $PSE_IP"
   log "Proxy IP has been saved to GitHub environment as PSE_PROXY_IP"
 }
@@ -375,6 +386,13 @@ setup_iptables() {
     # In build_only mode, use the provided PROXY_IP
     target_ip="$PROXY_IP"
     log "Using provided proxy IP for iptables: $target_ip"
+    
+    # Double check that PROXY_IP is actually set
+    if [ -z "$target_ip" ]; then
+      log "ERROR: PROXY_IP is empty in build_only mode. This should not happen!"
+      log "Check that you're passing the proxy_ip output from the pse_only job correctly"
+      exit 1
+    fi
   else
     # In other modes, use the local PSE container IP
     target_ip="$PSE_IP"
