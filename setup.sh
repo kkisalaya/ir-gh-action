@@ -772,7 +772,28 @@ main() {
   elif [ "$MODE" = "prepare_only" ]; then
     # Preparation only - just get credentials and scan ID
     log "Running in PREPARE_ONLY mode - preparing credentials and scan ID only"
+    
+    # Get ECR credentials
     get_ecr_credentials
+    
+    # Validate or generate scan ID
+    if [ -z "$SCAN_ID" ]; then
+      log "No SCAN_ID provided, generating a new one"
+      SCAN_ID="scan-$(date +%Y%m%d%H%M%S)-$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "fallback-$(date +%s)")"
+      log "Generated SCAN_ID: $SCAN_ID"
+    else
+      log "Using provided SCAN_ID: $SCAN_ID"
+    fi
+    
+    # Validate ECR credentials
+    if [ -z "$ECR_USERNAME" ] || [ -z "$ECR_TOKEN" ] || [ -z "$ECR_REGION" ] || [ -z "$ECR_REGISTRY_ID" ]; then
+      log "ERROR: ECR credentials are incomplete"
+      log "ECR_USERNAME empty: $([ -z "$ECR_USERNAME" ] && echo "Yes" || echo "No")"
+      log "ECR_TOKEN empty: $([ -z "$ECR_TOKEN" ] && echo "Yes" || echo "No")"
+      log "ECR_REGION empty: $([ -z "$ECR_REGION" ] && echo "Yes" || echo "No")"
+      log "ECR_REGISTRY_ID empty: $([ -z "$ECR_REGISTRY_ID" ] && echo "Yes" || echo "No")"
+      exit 1
+    fi
     
     # Save the ECR credentials to GitHub environment variables for use in subsequent jobs
     log "Saving ECR credentials to GitHub environment variables"
@@ -792,6 +813,14 @@ main() {
     echo "ecr_region=$ECR_REGION" >> $GITHUB_OUTPUT
     echo "ecr_registry_id=$ECR_REGISTRY_ID" >> $GITHUB_OUTPUT
     echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
+    
+    # Log the outputs for debugging
+    log "Output values set:"
+    log "ecr_username: ${ECR_USERNAME:0:3}***"
+    log "ecr_token: ***"
+    log "ecr_region: $ECR_REGION"
+    log "ecr_registry_id: $ECR_REGISTRY_ID"
+    log "scan_id: $SCAN_ID"
     
     log "PREPARE_ONLY mode completed successfully"
     log "Use these values in subsequent jobs to set up the PSE container as a service container"

@@ -1,0 +1,85 @@
+name: Node.js CI (Containerized Build)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # Preparation job - gets credentials and scan ID
+  prepare:
+    name: Prepare PSE Environment
+    runs-on: ubuntu-latest
+    outputs:
+      scan_id: ${{ steps.pse-prepare.outputs.scan_id }}
+      ecr_username: ${{ steps.pse-prepare.outputs.ecr_username }}
+      ecr_token: ${{ steps.pse-prepare.outputs.ecr_token }}
+      ecr_region: ${{ steps.pse-prepare.outputs.ecr_region }}
+      ecr_registry_id: ${{ steps.pse-prepare.outputs.ecr_registry_id }}
+    
+    steps:
+      - name: Prepare PSE credentials
+        id: pse-prepare
+        uses: kkisalaya/ir-gh-action@v0.55
+        with:
+          api_url: 'https://app.invisirisk.com'
+          app_token: ${{ secrets.IR_TOKEN }}
+          mode: "prepare_only"
+          debug: "true"
+
+  # Build job - runs the actual build with PSE as a service container
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    container:
+      image: node:18-bullseye
+      options: --privileged 
+
+    services:
+      pse-proxy:
+        image: ${{ needs.prepare.outputs.ecr_registry_id }}.dkr.ecr.${{ needs.prepare.outputs.ecr_region }}.amazonaws.com/pse:latest
+        credentials:
+          username: ${{ needs.prepare.outputs.ecr_username }}
+          password: ${{ needs.prepare.outputs.ecr_token }}
+        ports:
+          - 12345:12345
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SCAN_ID: ${{ needs.prepare.outputs.scan_id }}
+          
+    steps:
+      - name: Configure PSE Interception
+        uses: kkisalaya/ir-gh-action@v0.55
+        with:
+          mode: "build_only"
+          proxy_hostname: 'pse-proxy'
+          api_url: 'https://app.invisirisk.com'
+          app_token: ${{ secrets.IR_TOKEN }}
+          scan_id: "${{ needs.prepare.outputs.scan_id }}"
+          
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: npm install --no-package-lock
+        
+      - name: Run build
+        run: npm run build --if-present
+        
+      - name: Run tests
+        run: npm test || true
+
+  # Cleanup job - signals build completion
+  cleanup:
+    if: always()
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Cleanup PSE
+        uses: kkisalaya/ir-gh-action@v0.55
+        with:
+          api_url: 'https://app.invisirisk.com'
+          app_token: ${{ secrets.IR_TOKEN }}
+          scan_id: ${{ needs.prepare.outputs.scan_id }}
+          cleanup: 'true'
