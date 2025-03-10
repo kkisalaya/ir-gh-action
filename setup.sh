@@ -444,16 +444,23 @@ setup_iptables() {
   
   # Determine which IP to use for redirection
   if [ "$MODE" = "build_only" ]; then
-    # First try to discover the PSE proxy container IP if not provided
-    if [ -z "$PROXY_IP" ] && [ -z "$PROXY_HOSTNAME" ]; then
-      log "No proxy IP or hostname provided, attempting to discover PSE proxy container"
-      local discovered_ip=$(discover_pse_proxy_ip)
-      if [ -n "$discovered_ip" ]; then
-        log "Successfully discovered PSE proxy IP: $discovered_ip"
-        export PROXY_IP="$discovered_ip"
-        echo "PSE_PROXY_IP=$discovered_ip" >> $GITHUB_ENV
+    # Always try to discover the PSE proxy container IP
+    log "Attempting to discover PSE proxy container"
+    local discovered_ip=$(discover_pse_proxy_ip)
+    if [ -n "$discovered_ip" ]; then
+      log "Successfully discovered PSE proxy IP: $discovered_ip"
+      # Override any existing PROXY_IP with the discovered one
+      export PROXY_IP="$discovered_ip"
+      echo "PSE_PROXY_IP=$discovered_ip" >> $GITHUB_ENV
+      log "Using discovered proxy IP: $discovered_ip"
+    else
+      log "Warning: Could not discover PSE proxy container automatically"
+      if [ -n "$PROXY_IP" ]; then
+        log "Using previously set PROXY_IP: $PROXY_IP"
+      elif [ -n "$PROXY_HOSTNAME" ]; then
+        log "Will try to use PROXY_HOSTNAME: $PROXY_HOSTNAME"
       else
-        log "Warning: Could not discover PSE proxy container automatically"
+        log "No proxy IP or hostname available"
       fi
     fi
     
