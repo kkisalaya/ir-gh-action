@@ -822,6 +822,17 @@ main() {
     log "ecr_registry_id: $ECR_REGISTRY_ID"
     log "scan_id: $SCAN_ID"
     
+    # Debug: Print the contents of GITHUB_OUTPUT file
+    log "Contents of GITHUB_OUTPUT file:"
+    if [ -f "$GITHUB_OUTPUT" ]; then
+      log "$(cat $GITHUB_OUTPUT)"
+    else
+      log "GITHUB_OUTPUT file does not exist or is not accessible"
+    fi
+    
+    # Debug: Print the GITHUB_OUTPUT environment variable
+    log "GITHUB_OUTPUT environment variable: $GITHUB_OUTPUT"
+    
     log "PREPARE_ONLY mode completed successfully"
     log "Use these values in subsequent jobs to set up the PSE container as a service container"
     
