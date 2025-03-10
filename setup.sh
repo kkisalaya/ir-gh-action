@@ -361,8 +361,20 @@ pull_and_start_pse_container() {
     -e GITHUB_TOKEN="$GITHUB_TOKEN" \
     "$PSE_IMAGE"
   
-  # Get container IP for iptables configuration
-  PSE_IP=$(run_with_privilege docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse)
+  # Get container IP for iptables configuration using container name from docker ps
+  CONTAINER_NAME=$(run_with_privilege docker ps --filter "ancestor=$PSE_IMAGE" --format "{{.Names}}")
+  log "Found PSE container with name: $CONTAINER_NAME"
+  
+  # Get the IP address from the container
+  PSE_IP=$(run_with_privilege docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME")
+  log "Obtained PSE container IP: $PSE_IP"
+  
+  # If we couldn't get the IP using the container name, fall back to the old method
+  if [ -z "$PSE_IP" ]; then
+    log "Warning: Could not get IP using container name, falling back to container ID 'pse'"
+    PSE_IP=$(run_with_privilege docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse)
+  fi
+  
   export PSE_IP="$PSE_IP"
   export PROXY_IP="$PSE_IP"
   
