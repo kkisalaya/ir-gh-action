@@ -396,35 +396,37 @@ pull_and_start_pse_container() {
 
 # Function to discover the PSE proxy container IP
 discover_pse_proxy_ip() {
-  log "Attempting to discover PSE proxy container IP"
+  # Redirect all log messages to stderr so they don't get captured in the function output
+  log "Attempting to discover PSE proxy container IP" >&2
   local discovered_ip=""
   
   # Try to find the container by image name
-  log "Looking for PSE proxy container by image..."
+  log "Looking for PSE proxy container by image..." >&2
   local pse_containers=$(run_with_privilege docker ps --filter "ancestor=invisirisk/pse-proxy" --format "{{.Names}}" 2>/dev/null || echo "")
   
   # If not found, try with ECR path
   if [ -z "$pse_containers" ]; then
-    log "Trying with ECR path..."
+    log "Trying with ECR path..." >&2
     pse_containers=$(run_with_privilege docker ps --filter "ancestor=282904853176.dkr.ecr.us-west-2.amazonaws.com/invisirisk/pse-proxy" --format "{{.Names}}" 2>/dev/null || echo "")
   fi
   
   # If still not found, try with any available registry ID and region
   if [ -z "$pse_containers" ] && [ -n "$ECR_REGISTRY_ID" ] && [ -n "$ECR_REGION" ]; then
-    log "Trying with provided ECR registry ID and region..."
+    log "Trying with provided ECR registry ID and region..." >&2
     pse_containers=$(run_with_privilege docker ps --filter "ancestor=$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com/invisirisk/pse-proxy" --format "{{.Names}}" 2>/dev/null || echo "")
   fi
   
   # If containers found, get the IP of the first one
   if [ -n "$pse_containers" ]; then
     local container_name=$(echo "$pse_containers" | head -n 1)
-    log "Found PSE proxy container: $container_name"
+    log "Found PSE proxy container: $container_name" >&2
     discovered_ip=$(run_with_privilege docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container_name" 2>/dev/null || echo "")
-    log "Discovered PSE proxy IP: $discovered_ip"
+    log "Discovered PSE proxy IP: $discovered_ip" >&2
   else
-    log "No PSE proxy containers found by image name"
+    log "No PSE proxy containers found by image name" >&2
   fi
   
+  # Only output the IP address, nothing else
   echo "$discovered_ip"
 }
 
