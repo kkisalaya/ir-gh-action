@@ -808,11 +808,20 @@ main() {
     
     # Output values for use in subsequent jobs
     log "Setting outputs for use in subsequent jobs"
+    
+    # Use newer GitHub Actions output syntax (via GITHUB_OUTPUT environment file)
     echo "ecr_username=$ECR_USERNAME" >> "$GITHUB_OUTPUT"
     echo "ecr_token=$ECR_TOKEN" >> "$GITHUB_OUTPUT"
     echo "ecr_region=$ECR_REGION" >> "$GITHUB_OUTPUT"
     echo "ecr_registry_id=$ECR_REGISTRY_ID" >> "$GITHUB_OUTPUT"
     echo "scan_id=$SCAN_ID" >> "$GITHUB_OUTPUT"
+    
+    # Also set outputs using the older syntax for backward compatibility
+    echo "::set-output name=ecr_username::$ECR_USERNAME"
+    echo "::set-output name=ecr_token::$ECR_TOKEN"
+    echo "::set-output name=ecr_region::$ECR_REGION"
+    echo "::set-output name=ecr_registry_id::$ECR_REGISTRY_ID"
+    echo "::set-output name=scan_id::$SCAN_ID"
     
     # Log the outputs for debugging
     log "Output values set:"

@@ -49,10 +49,32 @@ inputs:
     required: false
     default: ''
 
+# Define outputs for the action
+outputs:
+  scan_id:
+    description: 'The scan ID generated or used by the action'
+    value: ${{ steps.pse-setup.outputs.scan_id }}
+  ecr_username:
+    description: 'ECR username for accessing the PSE container'
+    value: ${{ steps.pse-setup.outputs.ecr_username }}
+  ecr_token:
+    description: 'ECR token for accessing the PSE container'
+    value: ${{ steps.pse-setup.outputs.ecr_token }}
+  ecr_region:
+    description: 'ECR region for accessing the PSE container'
+    value: ${{ steps.pse-setup.outputs.ecr_region }}
+  ecr_registry_id:
+    description: 'ECR registry ID for accessing the PSE container'
+    value: ${{ steps.pse-setup.outputs.ecr_registry_id }}
+  test_op:
+    description: 'Test output for debugging'
+    value: 'test-output-value'
+
 runs:
   using: "composite"
   steps:
     - name: Run Setup or Cleanup
+      id: pse-setup
       shell: bash
       run: |
         if [ "${{ inputs.cleanup }}" = "true" ]; then
