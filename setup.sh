@@ -394,6 +394,40 @@ pull_and_start_pse_container() {
   log "Proxy IP has been saved to GitHub environment as PSE_PROXY_IP"
 }
 
+# Function to discover the PSE proxy container IP
+discover_pse_proxy_ip() {
+  log "Attempting to discover PSE proxy container IP"
+  local discovered_ip=""
+  
+  # Try to find the container by image name
+  log "Looking for PSE proxy container by image..."
+  local pse_containers=$(run_with_privilege docker ps --filter "ancestor=invisirisk/pse-proxy" --format "{{.Names}}" 2>/dev/null || echo "")
+  
+  # If not found, try with ECR path
+  if [ -z "$pse_containers" ]; then
+    log "Trying with ECR path..."
+    pse_containers=$(run_with_privilege docker ps --filter "ancestor=282904853176.dkr.ecr.us-west-2.amazonaws.com/invisirisk/pse-proxy" --format "{{.Names}}" 2>/dev/null || echo "")
+  fi
+  
+  # If still not found, try with any available registry ID and region
+  if [ -z "$pse_containers" ] && [ -n "$ECR_REGISTRY_ID" ] && [ -n "$ECR_REGION" ]; then
+    log "Trying with provided ECR registry ID and region..."
+    pse_containers=$(run_with_privilege docker ps --filter "ancestor=$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com/invisirisk/pse-proxy" --format "{{.Names}}" 2>/dev/null || echo "")
+  fi
+  
+  # If containers found, get the IP of the first one
+  if [ -n "$pse_containers" ]; then
+    local container_name=$(echo "$pse_containers" | head -n 1)
+    log "Found PSE proxy container: $container_name"
+    discovered_ip=$(run_with_privilege docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container_name" 2>/dev/null || echo "")
+    log "Discovered PSE proxy IP: $discovered_ip"
+  else
+    log "No PSE proxy containers found by image name"
+  fi
+  
+  echo "$discovered_ip"
+}
+
 # Function to set up iptables rules
 setup_iptables() {
   log "Setting up iptables rules"
@@ -410,6 +444,19 @@ setup_iptables() {
   
   # Determine which IP to use for redirection
   if [ "$MODE" = "build_only" ]; then
+    # First try to discover the PSE proxy container IP if not provided
+    if [ -z "$PROXY_IP" ] && [ -z "$PROXY_HOSTNAME" ]; then
+      log "No proxy IP or hostname provided, attempting to discover PSE proxy container"
+      local discovered_ip=$(discover_pse_proxy_ip)
+      if [ -n "$discovered_ip" ]; then
+        log "Successfully discovered PSE proxy IP: $discovered_ip"
+        export PROXY_IP="$discovered_ip"
+        echo "PSE_PROXY_IP=$discovered_ip" >> $GITHUB_ENV
+      else
+        log "Warning: Could not discover PSE proxy container automatically"
+      fi
+    fi
+    
     # Check if we're using hostname instead of IP
     if [ -n "$PROXY_HOSTNAME" ]; then
       log "Using proxy hostname: $PROXY_HOSTNAME"
