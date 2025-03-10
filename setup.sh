@@ -448,18 +448,9 @@ setup_certificates() {
   run_with_privilege mkdir -p /usr/local/share/ca-certificates/extra
   log "Created directory for extra CA certificates"
   
-  # Determine the CA certificate source based on mode
-  local cert_source
-  
-  if [ "$MODE" = "build_only" ]; then
-    # In build_only mode, use the provided PROXY_IP
-    cert_source="https://${PROXY_IP}:8443/ca"
-    log "Using remote PSE proxy for CA certificate: $cert_source"
-  else
-    # In other modes, use the pse.invisirisk.com domain
-    cert_source="https://pse.invisirisk.com/ca"
-    log "Using main PSE domain for CA certificate: $cert_source"
-  fi
+  # Always use pse.invisirisk.com as the certificate source
+  local cert_source="https://pse.invisirisk.com/ca"
+  log "Using main PSE domain for CA certificate: $cert_source"
   
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Fetching CA certificate from $cert_source, attempt $ATTEMPT of $MAX_RETRIES"
