@@ -452,6 +452,25 @@ setup_certificates() {
   local cert_source="https://pse.invisirisk.com/ca"
   log "Using main PSE domain for CA certificate: $cert_source"
   
+  # Check if proxy is alive and listening on port 12345
+  log "Checking if proxy is alive and listening on port 12345..."
+  if ! timeout 5 bash -c "</dev/tcp/127.0.0.1/12345" &>/dev/null; then
+    log "WARNING: Proxy does not appear to be listening on port 12345"
+    log "This may cause certificate retrieval to hang"
+    
+    # Check if we're in build_only mode
+    if [ "$MODE" = "build_only" ]; then
+      log "In build_only mode, checking if proxy is available at ${PROXY_IP}:12345"
+      if ! timeout 5 bash -c "</dev/tcp/${PROXY_IP}/12345" &>/dev/null; then
+        log "WARNING: Proxy at ${PROXY_IP}:12345 is not responding"
+      else
+        log "Proxy at ${PROXY_IP}:12345 is responding"
+      fi
+    fi
+  else
+    log "Proxy is listening on port 12345"
+  fi
+  
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Fetching CA certificate from $cert_source, attempt $ATTEMPT of $MAX_RETRIES"
     if curl -L -k -s -o /tmp/pse.crt "$cert_source"; then
