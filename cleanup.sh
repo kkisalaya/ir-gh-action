@@ -127,8 +127,16 @@ signal_build_end() {
     return 1
   fi
   
-  # Use PSE endpoint directly
-  BASE_URL="https://pse.invisirisk.com"
+  # Determine which endpoint to use
+  if [ -n "$PSE_PROXY_HOSTNAME" ]; then
+    # If we have a proxy hostname from the setup step, use it
+    BASE_URL="https://$PSE_PROXY_HOSTNAME"
+    log "Using proxy hostname for PSE endpoint: $BASE_URL"
+  else
+    # Default to PSE endpoint directly
+    BASE_URL="https://pse.invisirisk.com"
+    log "Using default PSE endpoint: $BASE_URL"
+  fi
   
   # Build URL for the GitHub run
   build_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
@@ -297,14 +305,30 @@ main() {
   # Validate environment variables
   validate_env_vars
   
-  # Display container logs before cleanup
-  display_container_logs "pse"
+  # Determine if we're in a containerized environment
+  IS_CONTAINERIZED=false
+  if [ -n "$PSE_PROXY_HOSTNAME" ]; then
+    log "Detected containerized build environment using hostname: $PSE_PROXY_HOSTNAME"
+    IS_CONTAINERIZED=true
+  fi
   
   # Signal build end to InvisiRisk API
   signal_build_end
   
-  # Clean up resources
-  cleanup_pse_container
+  # Only display container logs and clean up container if not in a containerized environment
+  # In a containerized environment, the PSE container is managed by GitHub Actions as a service container
+  if [ "$IS_CONTAINERIZED" = "false" ]; then
+    # Display container logs before cleanup
+    display_container_logs "pse"
+    
+    # Clean up container
+    cleanup_pse_container
+  else
+    log "Skipping container cleanup in containerized environment"
+    log "The service container will be automatically cleaned up by GitHub Actions"
+  fi
+  
+  # Always clean up iptables and certificates
   cleanup_iptables
   cleanup_certificates
   

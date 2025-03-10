@@ -49,27 +49,31 @@ validate_env_vars() {
     required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL" "GITHUB_TOKEN") # SCAN_ID not required for pse_only
   elif [ "$MODE" = "full" ]; then
     required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL" "SCAN_ID" "GITHUB_TOKEN")
+  elif [ "$MODE" = "prepare_only" ]; then
+    required_vars=("API_URL" "APP_TOKEN" "PORTAL_URL" "GITHUB_TOKEN") # SCAN_ID not required for prepare_only
   elif [ "$MODE" = "build_only" ]; then
     required_vars=("SCAN_ID" "GITHUB_TOKEN")
-    # Debug PROXY_IP value
+    # Debug PROXY_IP and PROXY_HOSTNAME values
     log "Debug: PROXY_IP environment variable value: '$PROXY_IP'"
+    log "Debug: PROXY_HOSTNAME environment variable value: '$PROXY_HOSTNAME'"
     
-    # Check for PROXY_IP specifically for build_only mode
-    if [ -z "$PROXY_IP" ]; then
+    # Check for either PROXY_IP or PROXY_HOSTNAME for build_only mode
+    if [ -z "$PROXY_IP" ] && [ -z "$PROXY_HOSTNAME" ]; then
       # Try using the fallback value from action.yml if available
       if [ -n "$PSE_PROXY_FALLBACK" ]; then
         log "INFO: Using fallback proxy IP: $PSE_PROXY_FALLBACK"
         PROXY_IP="$PSE_PROXY_FALLBACK"
         export PROXY_IP
       else
-        log "ERROR: PROXY_IP is required for build_only mode but not set"
-        log "TIP: Make sure to pass the proxy_ip output from the pse_only job"
-        log "Example: proxy_ip: \"${{ needs.setup-pse.outputs.proxy_ip }}\""
+        log "ERROR: Either PROXY_IP or PROXY_HOSTNAME is required for build_only mode but neither is set"
+        log "TIP: Make sure to pass either proxy_ip or proxy_hostname in your workflow"
+        log "Example with IP: proxy_ip: \"${{ needs.setup-pse.outputs.proxy_ip }}\""
+        log "Example with hostname: proxy_hostname: \"pse-proxy\""
         exit 1
       fi
     fi
   else 
-    log "ERROR: Invalid mode $MODE. Valid modes are 'pse_only', 'build_only', and 'full'"
+    log "ERROR: Invalid mode $MODE. Valid modes are 'pse_only', 'build_only', 'prepare_only', and 'full'"
     exit 1
   fi
   
@@ -394,17 +398,38 @@ setup_iptables() {
   
   # Determine which IP to use for redirection
   if [ "$MODE" = "build_only" ]; then
-    # In build_only mode, use the provided PROXY_IP
-    target_ip="$PROXY_IP"
-    log "Using provided proxy IP for iptables: $target_ip"
+    # Check if we're using hostname instead of IP
+    if [ -n "$PROXY_HOSTNAME" ]; then
+      log "Using proxy hostname: $PROXY_HOSTNAME"
+      
+      # Try to resolve hostname to IP if possible
+      if command -v getent > /dev/null 2>&1; then
+        RESOLVED_IP=$(getent hosts $PROXY_HOSTNAME | awk '{ print $1 }' | head -n 1)
+        if [ -n "$RESOLVED_IP" ]; then
+          log "Resolved $PROXY_HOSTNAME to IP: $RESOLVED_IP"
+          target_ip="$RESOLVED_IP"
+        else
+          log "Could not resolve hostname to IP, using PROXY_IP if available"
+          target_ip="$PROXY_IP"
+        fi
+      else
+        log "getent not available, using PROXY_IP if available"
+        target_ip="$PROXY_IP"
+      fi
+    else
+      # In build_only mode, use the provided PROXY_IP
+      target_ip="$PROXY_IP"
+      log "Using provided proxy IP for iptables: $target_ip"
+    fi
     
-    # Double check that PROXY_IP is actually set
+    # Double check that target_ip is actually set
     if [ -z "$target_ip" ]; then
-      log "ERROR: PROXY_IP is empty in build_only mode. This should not happen!"
+      log "ERROR: Could not determine target IP for iptables in build_only mode!"
       log "Here are the available environment variables that might help debug:"
       env | grep -E 'PROXY|PSE|GITHUB_' || true
-      log "Check that you're passing the proxy_ip output from the pse_only job correctly"
-      log "Example: proxy_ip: \"${{ needs.setup-pse.outputs.proxy_ip }}\""
+      log "Check that you're passing either proxy_ip or proxy_hostname correctly"
+      log "Example with IP: proxy_ip: \"${{ needs.setup-pse.outputs.proxy_ip }}\""
+      log "Example with hostname: proxy_hostname: \"pse-proxy\""
       exit 1
     fi
   else
@@ -460,11 +485,31 @@ setup_certificates() {
     
     # Check if we're in build_only mode
     if [ "$MODE" = "build_only" ]; then
-      log "In build_only mode, checking if proxy is available at ${PROXY_IP}:12345"
-      if ! timeout 5 bash -c "</dev/tcp/${PROXY_IP}/12345" &>/dev/null; then
-        log "WARNING: Proxy at ${PROXY_IP}:12345 is not responding"
+      # Check if we're using hostname instead of IP
+      if [ -n "$PROXY_HOSTNAME" ]; then
+        log "In build_only mode, checking if proxy is available at ${PROXY_HOSTNAME}:12345"
+        if ! timeout 5 bash -c "</dev/tcp/${PROXY_HOSTNAME}/12345" &>/dev/null; then
+          log "WARNING: Proxy at ${PROXY_HOSTNAME}:12345 is not responding"
+          
+          # If hostname doesn't work, try with IP if we have it
+          if [ -n "$PROXY_IP" ]; then
+            log "Trying with IP address instead: ${PROXY_IP}:12345"
+            if ! timeout 5 bash -c "</dev/tcp/${PROXY_IP}/12345" &>/dev/null; then
+              log "WARNING: Proxy at ${PROXY_IP}:12345 is also not responding"
+            else
+              log "Proxy at ${PROXY_IP}:12345 is responding"
+            fi
+          fi
+        else
+          log "Proxy at ${PROXY_HOSTNAME}:12345 is responding"
+        fi
       else
-        log "Proxy at ${PROXY_IP}:12345 is responding"
+        log "In build_only mode, checking if proxy is available at ${PROXY_IP}:12345"
+        if ! timeout 5 bash -c "</dev/tcp/${PROXY_IP}/12345" &>/dev/null; then
+          log "WARNING: Proxy at ${PROXY_IP}:12345 is not responding"
+        else
+          log "Proxy at ${PROXY_IP}:12345 is responding"
+        fi
       fi
     fi
   else
@@ -591,8 +636,16 @@ signal_build_start() {
     return 0
   fi
   
-  # Use PSE endpoint directly
-  BASE_URL="https://pse.invisirisk.com"
+  # Determine which endpoint to use
+  if [ "$MODE" = "build_only" ] && [ -n "$PROXY_HOSTNAME" ]; then
+    # In build_only mode with hostname, use the hostname for the endpoint
+    BASE_URL="https://$PROXY_HOSTNAME"
+    log "Using proxy hostname for PSE endpoint: $BASE_URL"
+  else
+    # Default to PSE endpoint directly
+    BASE_URL="https://pse.invisirisk.com"
+    log "Using default PSE endpoint: $BASE_URL"
+  fi
   
   # Get Git information with fallbacks for CI environment
   git_url=$(git config --get remote.origin.url 2>/dev/null || echo "https://github.com/$GITHUB_REPOSITORY.git")
@@ -716,39 +769,98 @@ main() {
     log "This IP address has been saved to GitHub environment as PSE_PROXY_IP"
     log "Use this value in the build_only mode by setting mode: 'build_only' and proxy_ip: \${{ steps.<step-id>.outputs.proxy_ip }}"
     
+  elif [ "$MODE" = "prepare_only" ]; then
+    # Preparation only - just get credentials and scan ID
+    log "Running in PREPARE_ONLY mode - preparing credentials and scan ID only"
+    get_ecr_credentials
+    
+    # Save the ECR credentials to GitHub environment variables for use in subsequent jobs
+    log "Saving ECR credentials to GitHub environment variables"
+    echo "ECR_USERNAME=$ECR_USERNAME" >> $GITHUB_ENV
+    echo "ECR_TOKEN=$ECR_TOKEN" >> $GITHUB_ENV
+    echo "ECR_REGION=$ECR_REGION" >> $GITHUB_ENV
+    echo "ECR_REGISTRY_ID=$ECR_REGISTRY_ID" >> $GITHUB_ENV
+    
+    # Save the scan ID to GitHub environment variables
+    log "Saving scan ID to GitHub environment variables"
+    echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
+    
+    # Output values for use in subsequent jobs
+    log "Setting outputs for use in subsequent jobs"
+    echo "ecr_username=$ECR_USERNAME" >> $GITHUB_OUTPUT
+    echo "ecr_token=$ECR_TOKEN" >> $GITHUB_OUTPUT
+    echo "ecr_region=$ECR_REGION" >> $GITHUB_OUTPUT
+    echo "ecr_registry_id=$ECR_REGISTRY_ID" >> $GITHUB_OUTPUT
+    echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
+    
+    log "PREPARE_ONLY mode completed successfully"
+    log "Use these values in subsequent jobs to set up the PSE container as a service container"
+    
   elif [ "$MODE" = "build_only" ]; then
     # Build environment setup only
     log "Running in BUILD_ONLY mode - configuring build environment only"
     
-    # Enhanced debugging for proxy_ip issues in build_only mode
-    log "Using PSE proxy at IP: $PROXY_IP"
-    
-    # When in a container, ensure proxy_ip is explicitly passed and visible
-    if [ "$(id -u)" = "0" ]; then
-      log "Detected container environment (running as root)"
-      log "PROXY_IP environment variable: $PROXY_IP"
+    # Check if we're using hostname instead of IP
+    if [ -n "$PROXY_HOSTNAME" ]; then
+      log "Using PSE proxy hostname: $PROXY_HOSTNAME"
       
-      # Try multiple fallback mechanisms to ensure PROXY_IP is set
-      if [ -z "$PROXY_IP" ]; then
-        if [ -n "$PSE_PROXY_IP" ]; then
-          # First try to use PSE_PROXY_IP from the environment
-          log "Using PSE_PROXY_IP ($PSE_PROXY_IP) as fallback"
-          PROXY_IP="$PSE_PROXY_IP"
-          export PROXY_IP
-        elif [ -n "$PSE_PROXY_FALLBACK" ]; then
-          # Next try using the fallback parameter set in action.yml
-          log "Using PSE_PROXY_FALLBACK ($PSE_PROXY_FALLBACK) from action.yml"
-          PROXY_IP="$PSE_PROXY_FALLBACK"
+      # Try to resolve hostname to IP if possible
+      if command -v getent > /dev/null 2>&1; then
+        RESOLVED_IP=$(getent hosts $PROXY_HOSTNAME | awk '{ print $1 }' | head -n 1)
+        if [ -n "$RESOLVED_IP" ]; then
+          log "Resolved $PROXY_HOSTNAME to IP: $RESOLVED_IP"
+          PROXY_IP="$RESOLVED_IP"
           export PROXY_IP
         else
-          # Last resort: use hardcoded value - common docker bridge network first address
-          log "WARNING: Using hardcoded proxy IP (172.17.0.2) as last resort"
-          log "This may work but it's not guaranteed. Check job logs for actual IP."
+          log "Could not resolve hostname to IP, will use hostname directly for certificate retrieval"
+          # For certificate retrieval, we'll use the hostname directly
+          # but we still need an IP for iptables rules
+          log "WARNING: Using default Docker bridge IP (172.17.0.2) for iptables rules"
+          log "This may not work if the container is on a different network"
           PROXY_IP="172.17.0.2"
           export PROXY_IP
         fi
+      else
+        log "getent not available, using hostname directly for certificate retrieval"
+        # For certificate retrieval, we'll use the hostname directly
+        # but we still need an IP for iptables rules
+        log "WARNING: Using default Docker bridge IP (172.17.0.2) for iptables rules"
+        log "This may not work if the container is on a different network"
+        PROXY_IP="172.17.0.2"
+        export PROXY_IP
+      fi
+    else
+      # Enhanced debugging for proxy_ip issues in build_only mode
+      log "Using PSE proxy at IP: $PROXY_IP"
+      
+      # When in a container, ensure proxy_ip is explicitly passed and visible
+      if [ "$(id -u)" = "0" ]; then
+        log "Detected container environment (running as root)"
+        log "PROXY_IP environment variable: $PROXY_IP"
+        
+        # Try multiple fallback mechanisms to ensure PROXY_IP is set
+        if [ -z "$PROXY_IP" ]; then
+          if [ -n "$PSE_PROXY_IP" ]; then
+            # First try to use PSE_PROXY_IP from the environment
+            log "Using PSE_PROXY_IP ($PSE_PROXY_IP) as fallback"
+            PROXY_IP="$PSE_PROXY_IP"
+            export PROXY_IP
+          elif [ -n "$PSE_PROXY_FALLBACK" ]; then
+            # Next try using the fallback parameter set in action.yml
+            log "Using PSE_PROXY_FALLBACK ($PSE_PROXY_FALLBACK) from action.yml"
+            PROXY_IP="$PSE_PROXY_FALLBACK"
+            export PROXY_IP
+          else
+            # Last resort: use hardcoded value - common docker bridge network first address
+            log "WARNING: Using hardcoded proxy IP (172.17.0.2) as last resort"
+            log "This may work but it's not guaranteed. Check job logs for actual IP."
+            PROXY_IP="172.17.0.2"
+            export PROXY_IP
+          fi
+        fi
       fi
     fi
+    
     setup_iptables
     setup_certificates
     signal_build_start
@@ -769,15 +881,33 @@ main() {
     log "FULL mode setup completed successfully"
   fi
   
+  # Save environment variables for the cleanup step
+  # This ensures that cleanup can access these values even if they aren't explicitly passed
+  if [ "$MODE" != "prepare_only" ]; then
+    log "Saving environment variables for cleanup step"
+    echo "PSE_API_URL=$API_URL" >> $GITHUB_ENV
+    echo "PSE_APP_TOKEN=$APP_TOKEN" >> $GITHUB_ENV
+    echo "PSE_PORTAL_URL=$PORTAL_URL" >> $GITHUB_ENV
+    echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
+    
+    # Also save proxy information if available
+    if [ -n "$PROXY_IP" ]; then
+      echo "PSE_PROXY_IP=$PROXY_IP" >> $GITHUB_ENV
+    fi
+    if [ -n "$PROXY_HOSTNAME" ]; then
+      echo "PSE_PROXY_HOSTNAME=$PROXY_HOSTNAME" >> $GITHUB_ENV
+    fi
+  fi
+  
   # If we're in debug mode, display container status
-  if [ "$DEBUG" = "true" ] && [ "$MODE" != "build_only" ]; then
+  if [ "$DEBUG" = "true" ] && [ "$MODE" != "build_only" ] && [ "$MODE" != "prepare_only" ]; then
     log "Container status:"
     run_with_privilege docker ps -a | grep pse || true
     log "Container logs (last 10 lines):"
     run_with_privilege docker logs --tail 10 pse 2>&1 || true
   fi
   
-  if [ "$MODE" != "build_only" ]; then
+  if [ "$MODE" != "build_only" ] && [ "$MODE" != "prepare_only" ]; then
     log "PSE container logs will be displayed at the end of the run"
   fi
 }

@@ -33,11 +33,15 @@ inputs:
     required: false
     default: 'false'
   mode:
-    description: 'The operation mode: "pse_only" sets up only the PSE container, "build_only" configures the build environment. Default is "full" which does both.'
+    description: 'The operation mode: "pse_only" sets up only the PSE container, "build_only" configures the build environment, "prepare_only" only prepares credentials and scan ID. Default is "full" which does both PSE setup and build configuration.'
     required: false
     default: 'full'
   proxy_ip:
-    description: 'IP address of the PSE proxy container when using "build_only" mode. Required when mode is "build_only".'
+    description: 'IP address of the PSE proxy container when using "build_only" mode. Either proxy_ip or proxy_hostname should be provided when mode is "build_only".'
+    required: false
+    default: ''
+  proxy_hostname:
+    description: 'Hostname of the PSE proxy container when using "build_only" mode with service containers. Use this instead of proxy_ip when the PSE container is running as a service container.'
     required: false
     default: ''
   scan_id:
@@ -57,29 +61,46 @@ runs:
         else
           echo "Running PSE setup in ${{ inputs.mode }} mode..."
           
-          # Debug the inputs value when in build_only mode
+          # Handle build_only mode configuration
           if [ "${{ inputs.mode }}" = "build_only" ]; then
             echo "Debug: proxy_ip input value = '${{ inputs.proxy_ip }}'"
+            echo "Debug: proxy_hostname input value = '${{ inputs.proxy_hostname }}'"
             echo "Debug: Current environment variables:"
-            env | grep -E 'PROXY_IP|GITHUB_' || true
+            env | grep -E 'PROXY_IP|PROXY_HOSTNAME|GITHUB_' || true
             
-            # Additional steps for build_only mode to ensure proxy_ip is set
-            if [ -z "${{ inputs.proxy_ip }}" ]; then
-              echo "WARNING: proxy_ip input is empty in build_only mode"
+            # Check if we have a hostname instead of IP
+            if [ -n "${{ inputs.proxy_hostname }}" ]; then
+              echo "Using proxy hostname: ${{ inputs.proxy_hostname }}"
+              echo "PROXY_HOSTNAME=${{ inputs.proxy_hostname }}" >> $GITHUB_ENV
+              
+              # Try to resolve hostname to IP if possible
+              if command -v getent > /dev/null 2>&1; then
+                RESOLVED_IP=$(getent hosts ${{ inputs.proxy_hostname }} | awk '{ print $1 }' | head -n 1)
+                if [ -n "$RESOLVED_IP" ]; then
+                  echo "Resolved ${{ inputs.proxy_hostname }} to IP: $RESOLVED_IP"
+                  echo "PROXY_IP=$RESOLVED_IP" >> $GITHUB_ENV
+                else
+                  echo "Could not resolve hostname to IP, will use hostname directly"
+                fi
+              else
+                echo "getent not available, using hostname directly"
+              fi
+            # If no hostname but IP is provided
+            elif [ -n "${{ inputs.proxy_ip }}" ]; then
+              echo "Using provided proxy IP: ${{ inputs.proxy_ip }}"
+              echo "PROXY_IP=${{ inputs.proxy_ip }}" >> $GITHUB_ENV
+            else
+              echo "WARNING: Neither proxy_ip nor proxy_hostname provided in build_only mode"
               echo "This may happen in container environments. Will try to resolve..."
               
-              # Cannot access workflow job outputs directly in actions
-              # Use hardcoded fallback if no proxy_ip is provided
+              # Use hardcoded fallback if no proxy information is provided
               echo "PROXY_IP=172.17.0.2" >> $GITHUB_ENV
               echo "WARNING: Using fallback proxy IP 172.17.0.2 - check logs for actual IP"
-            else
-              # Explicitly set proxy_ip to ensure it's available in the container
-              echo "PROXY_IP=${{ inputs.proxy_ip }}" >> $GITHUB_ENV
             fi
           fi
           
-          # Create scan in InvisiRisk Portal only in build_only or full mode
-          if [ "${{ inputs.mode }}" = "build_only" ] || [ "${{ inputs.mode }}" = "full" ]; then
+          # Create scan in InvisiRisk Portal for all modes except pse_only
+          if [ "${{ inputs.mode }}" = "build_only" ] || [ "${{ inputs.mode }}" = "full" ] || [ "${{ inputs.mode }}" = "prepare_only" ]; then
             echo "Creating scan in InvisiRisk Portal..."
             echo "API URL: ${{ inputs.api_url }}/utilityapi/v1/scan"
             
