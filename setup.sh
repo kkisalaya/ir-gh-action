@@ -446,17 +446,29 @@ setup_iptables() {
   
   # Determine which IP to use for redirection
   if [ "$MODE" = "build_only" ]; then
-    # Always try to discover the PSE proxy container IP
-    log "Attempting to discover PSE proxy container"
-    local discovered_ip=$(discover_pse_proxy_ip)
-    if [ -n "$discovered_ip" ]; then
-      log "Successfully discovered PSE proxy IP: $discovered_ip"
-      # Override any existing PROXY_IP with the discovered one
-      export PROXY_IP="$discovered_ip"
-      echo "PSE_PROXY_IP=$discovered_ip" >> $GITHUB_ENV
-      log "Using discovered proxy IP: $discovered_ip"
+    # Always use the specific approach to get the proxy's IP
+    log "Getting PSE proxy container IP using container name from docker ps"
+    
+    # Get the container name for the PSE proxy
+    CONTAINER_NAME=$(run_with_privilege docker ps --filter "ancestor=282904853176.dkr.ecr.us-west-2.amazonaws.com/invisirisk/pse-proxy:latest" --format "{{.Names}}")
+    
+    if [ -n "$CONTAINER_NAME" ]; then
+      log "Found PSE proxy container: $CONTAINER_NAME"
+      
+      # Get the IP address from the container
+      PSE_IP=$(run_with_privilege docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME")
+      
+      if [ -n "$PSE_IP" ]; then
+        log "Successfully obtained PSE proxy IP: $PSE_IP"
+        # Override any existing PROXY_IP with the discovered one
+        export PROXY_IP="$PSE_IP"
+        echo "PSE_PROXY_IP=$PSE_IP" >> $GITHUB_ENV
+        log "Using discovered proxy IP: $PSE_IP"
+      else
+        log "Warning: Could not get IP address from container $CONTAINER_NAME"
+      fi
     else
-      log "Warning: Could not discover PSE proxy container automatically"
+      log "Warning: Could not find PSE proxy container"
       if [ -n "$PROXY_IP" ]; then
         log "Using previously set PROXY_IP: $PROXY_IP"
       elif [ -n "$PROXY_HOSTNAME" ]; then
