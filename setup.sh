@@ -808,11 +808,11 @@ main() {
     
     # Output values for use in subsequent jobs
     log "Setting outputs for use in subsequent jobs"
-    echo "ecr_username=$ECR_USERNAME" >> $GITHUB_OUTPUT
-    echo "ecr_token=$ECR_TOKEN" >> $GITHUB_OUTPUT
-    echo "ecr_region=$ECR_REGION" >> $GITHUB_OUTPUT
-    echo "ecr_registry_id=$ECR_REGISTRY_ID" >> $GITHUB_OUTPUT
-    echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
+    echo "ecr_username=$ECR_USERNAME" >> "$GITHUB_OUTPUT"
+    echo "ecr_token=$ECR_TOKEN" >> "$GITHUB_OUTPUT"
+    echo "ecr_region=$ECR_REGION" >> "$GITHUB_OUTPUT"
+    echo "ecr_registry_id=$ECR_REGISTRY_ID" >> "$GITHUB_OUTPUT"
+    echo "scan_id=$SCAN_ID" >> "$GITHUB_OUTPUT"
     
     # Log the outputs for debugging
     log "Output values set:"
