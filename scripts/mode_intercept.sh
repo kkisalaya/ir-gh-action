@@ -73,30 +73,100 @@ discover_pse_proxy_ip() {
   log "Attempting to discover PSE proxy container IP" >&2
   local discovered_ip=""
   
-  # Try to find the container by image name
-  log "Looking for PSE proxy container by image..." >&2
-  local pse_containers=$(run_with_privilege docker ps --filter "ancestor=invisirisk/pse-proxy" --format "{{.Names}}" 2>/dev/null || echo "")
-  
-  # If not found, try with ECR path
-  if [ -z "$pse_containers" ]; then
-    log "Trying with ECR path..." >&2
-    pse_containers=$(run_with_privilege docker ps --filter "ancestor=282904853176.dkr.ecr.us-west-2.amazonaws.com/invisirisk/pse-proxy" --format "{{.Names}}" 2>/dev/null || echo "")
-  fi
-  
-  # If still not found, try with any available registry ID and region
-  if [ -z "$pse_containers" ] && [ -n "$ECR_REGISTRY_ID" ] && [ -n "$ECR_REGION" ]; then
-    log "Trying with provided ECR registry ID and region..." >&2
-    pse_containers=$(run_with_privilege docker ps --filter "ancestor=$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com/invisirisk/pse-proxy" --format "{{.Names}}" 2>/dev/null || echo "")
-  fi
-  
-  # If containers found, get the IP of the first one
-  if [ -n "$pse_containers" ]; then
-    local container_name=$(echo "$pse_containers" | head -n 1)
-    log "Found PSE proxy container: $container_name" >&2
-    discovered_ip=$(run_with_privilege docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container_name" 2>/dev/null || echo "")
-    log "Discovered PSE proxy IP: $discovered_ip" >&2
+  # First, check if Docker is available
+  if command -v docker >/dev/null 2>&1; then
+    log "Docker is available, attempting to find PSE proxy container" >&2
+    
+    # Try to find the container by image name
+    log "Looking for PSE proxy container by image..." >&2
+    local pse_containers=$(run_with_privilege docker ps --filter "ancestor=invisirisk/pse-proxy" --format "{{.Names}}" 2>/dev/null || echo "")
+    
+    # If not found, try with ECR path
+    if [ -z "$pse_containers" ]; then
+      log "Trying with ECR path..." >&2
+      pse_containers=$(run_with_privilege docker ps --filter "ancestor=282904853176.dkr.ecr.us-west-2.amazonaws.com/invisirisk/pse-proxy" --format "{{.Names}}" 2>/dev/null || echo "")
+    fi
+    
+    # If still not found, try with any available registry ID and region
+    if [ -z "$pse_containers" ] && [ -n "$ECR_REGISTRY_ID" ] && [ -n "$ECR_REGION" ]; then
+      log "Trying with provided ECR registry ID and region..." >&2
+      pse_containers=$(run_with_privilege docker ps --filter "ancestor=$ECR_REGISTRY_ID.dkr.ecr.$ECR_REGION.amazonaws.com/invisirisk/pse-proxy" --format "{{.Names}}" 2>/dev/null || echo "")
+    fi
+    
+    # If containers found, get the IP of the first one
+    if [ -n "$pse_containers" ]; then
+      local container_name=$(echo "$pse_containers" | head -n 1)
+      log "Found PSE proxy container: $container_name" >&2
+      discovered_ip=$(run_with_privilege docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container_name" 2>/dev/null || echo "")
+      log "Discovered PSE proxy IP: $discovered_ip" >&2
+    else
+      log "No PSE proxy containers found by image name" >&2
+    fi
   else
-    log "No PSE proxy containers found by image name" >&2
+    log "Docker is not available, cannot discover container directly" >&2
+  fi
+  
+  # If we couldn't find the IP using Docker or Docker is not available,
+  # try to resolve using hostname as a fallback
+  if [ -z "$discovered_ip" ]; then
+    log "Attempting to resolve PSE proxy using hostname..." >&2
+    
+    # Determine which hostname to use - use PROXY_HOSTNAME if provided, otherwise default to 'pse-proxy'
+    local hostname_to_try="pse-proxy"
+    local alt_hostname="${hostname_to_try}.local"
+    
+    if [ -n "$PROXY_HOSTNAME" ]; then
+      log "Using provided PROXY_HOSTNAME: $PROXY_HOSTNAME" >&2
+      hostname_to_try="$PROXY_HOSTNAME"
+      alt_hostname=""  # Don't try .local suffix with user-provided hostname
+    else
+      log "Using default hostname: $hostname_to_try" >&2
+    fi
+    
+    # Try with the determined hostname
+    if command -v getent >/dev/null 2>&1; then
+      log "Using getent to resolve hostname $hostname_to_try" >&2
+      discovered_ip=$(getent hosts "$hostname_to_try" 2>/dev/null | awk '{ print $1 }' | head -n 1)
+      
+      if [ -z "$discovered_ip" ] && [ -n "$alt_hostname" ]; then
+        # Try with alternative hostname if it exists
+        log "Trying alternative hostname: $alt_hostname" >&2
+        discovered_ip=$(getent hosts "$alt_hostname" 2>/dev/null | awk '{ print $1 }' | head -n 1)
+      fi
+    elif command -v host >/dev/null 2>&1; then
+      log "Using host command to resolve hostname $hostname_to_try" >&2
+      discovered_ip=$(host -t A "$hostname_to_try" 2>/dev/null | grep "has address" | head -n 1 | awk '{ print $NF }')
+      
+      if [ -z "$discovered_ip" ] && [ -n "$alt_hostname" ]; then
+        # Try with alternative hostname if it exists
+        log "Trying alternative hostname: $alt_hostname" >&2
+        discovered_ip=$(host -t A "$alt_hostname" 2>/dev/null | grep "has address" | head -n 1 | awk '{ print $NF }')
+      fi
+    elif command -v nslookup >/dev/null 2>&1; then
+      log "Using nslookup to resolve hostname $hostname_to_try" >&2
+      discovered_ip=$(nslookup "$hostname_to_try" 2>/dev/null | grep "Address:" | tail -n 1 | awk '{ print $2 }')
+      
+      if [ -z "$discovered_ip" ] && [ -n "$alt_hostname" ]; then
+        # Try with alternative hostname if it exists
+        log "Trying alternative hostname: $alt_hostname" >&2
+        discovered_ip=$(nslookup "$alt_hostname" 2>/dev/null | grep "Address:" | tail -n 1 | awk '{ print $2 }')
+      fi
+    elif command -v ping >/dev/null 2>&1; then
+      log "Using ping to resolve hostname $hostname_to_try" >&2
+      discovered_ip=$(ping -c 1 "$hostname_to_try" 2>/dev/null | grep "PING" | head -n 1 | awk -F'[()]' '{ print $2 }')
+      
+      if [ -z "$discovered_ip" ] && [ -n "$alt_hostname" ]; then
+        # Try with alternative hostname if it exists
+        log "Trying alternative hostname: $alt_hostname" >&2
+        discovered_ip=$(ping -c 1 "$alt_hostname" 2>/dev/null | grep "PING" | head -n 1 | awk -F'[()]' '{ print $2 }')
+      fi
+    fi
+    
+    if [ -n "$discovered_ip" ]; then
+      log "Successfully resolved PSE proxy IP from hostname: $discovered_ip" >&2
+    else
+      log "Could not resolve PSE proxy hostname" >&2
+    fi
   fi
   
   # Only output the IP address, nothing else
