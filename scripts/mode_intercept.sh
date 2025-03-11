@@ -381,12 +381,15 @@ setup_certificates() {
   log "Getting certificate from $cert_endpoint"
   
   # Create certificate directory
+  echo "Creating cert directory"
   local cert_dir="/usr/local/share/ca-certificates"
   run_with_privilege mkdir -p "$cert_dir"
   
   # Download certificate
+  echo "running curl to get certificate"
   local cert_file="$cert_dir/pse-ca.crt"
   run_with_privilege curl -s -k -o "$cert_file" "$cert_endpoint"
+  echo "Ran curl"
   
   # Check if certificate was downloaded successfully
   if [ ! -s "$cert_file" ]; then
