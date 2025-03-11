@@ -125,7 +125,7 @@ get_ecr_credentials() {
   
   # Make API request to get ECR credentials
   local RESPONSE
-  RESPONSE=$(curl -s -X GET "$API_ENDPOINT" )
+  RESPONSE=$(curl -L -s -X GET "$API_ENDPOINT" )
   
   log "API response received"
 
@@ -186,7 +186,7 @@ prepare_scan_id() {
   
   # Make API request to create scan
   local RESPONSE
-  RESPONSE=$(curl -s -X POST "$API_ENDPOINT" \
+  RESPONSE=$(curl -L-s -X POST "$API_ENDPOINT" \
     -H "Content-Type: application/json" \
     -d '{"api_key":"$APP_TOKEN"}')
   
