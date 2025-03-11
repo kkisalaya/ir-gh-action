@@ -178,7 +178,7 @@ prepare_scan_id() {
     SCAN_ID="test-scan-$(date +%Y%m%d%H%M%S)"
     export SCAN_ID
     return 0
-  }
+  fi
   
   # Create a new scan in the InvisiRisk Portal
   local API_ENDPOINT="$API_URL/utilityapi/v1/scan"
@@ -199,7 +199,7 @@ prepare_scan_id() {
     ERROR_MSG=$(parse_json "$RESPONSE" "error")
     log "ERROR: Failed to create scan: $ERROR_MSG"
     exit 1
-  }
+  fi
   
   # Parse the response to get the scan ID
   SCAN_ID=$(parse_json "$RESPONSE" "id")
@@ -215,7 +215,7 @@ prepare_scan_id() {
     log "ERROR: Failed to extract scan ID from API response"
     log "API Response: $RESPONSE"
     exit 1
-  }
+  fi
   
   # Export the scan ID for use in other functions
   export SCAN_ID
