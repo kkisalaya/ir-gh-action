@@ -276,7 +276,7 @@ setup_certificates() {
     cert_host="$PROXY_IP"
   fi
   
-  cert_endpoint="http://$cert_host:12345/cert"
+  cert_endpoint="https://pse.invisirisk.com/ca"
   log "Getting certificate from $cert_endpoint"
   
   # Create certificate directory
@@ -285,7 +285,7 @@ setup_certificates() {
   
   # Download certificate
   local cert_file="$cert_dir/pse-ca.crt"
-  run_with_privilege curl -s -o "$cert_file" "$cert_endpoint"
+  run_with_privilege curl -s -k -o "$cert_file" "$cert_endpoint"
   
   # Check if certificate was downloaded successfully
   if [ ! -s "$cert_file" ]; then
@@ -293,7 +293,7 @@ setup_certificates() {
     log "Trying alternative methods..."
     
     # Try alternative methods to get the certificate
-    run_with_privilege curl -s -o "$cert_file" "http://$cert_host:12345/cert"
+    run_with_privilege curl -s -k -o "$cert_file" "https://pse.invisirisk.com/ca"
     
     if [ ! -s "$cert_file" ]; then
       log "ERROR: All certificate download attempts failed"
@@ -353,31 +353,60 @@ start_capture() {
     exit 1
   fi
   
+  # Get Git information with fallbacks for CI environment
+  git_url=$(git config --get remote.origin.url 2>/dev/null || echo "https://github.com/$GITHUB_REPOSITORY.git")
+  git_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "${GITHUB_REF#refs/heads/}")
+  git_commit=$(git rev-parse HEAD 2>/dev/null || echo "$GITHUB_SHA")
+  repo_name=$(basename -s .git "$git_url" 2>/dev/null || echo "$GITHUB_REPOSITORY")
+  
+  # Build URL for the GitHub run
+  build_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+  
+  # Build parameters
+  params="builder=$(url_encode "samplegithub")"
+  params="${params}&id=$(url_encode "$SCAN_ID")"
+  params="${params}&build_id=$(url_encode "$GITHUB_RUN_ID")"
+  params="${params}&build_url=$(url_encode "$build_url")"
+  params="${params}&project=$(url_encode "${repo_name:-$GITHUB_REPOSITORY}")"
+  params="${params}&workflow=$(url_encode "$GITHUB_WORKFLOW")"
+  params="${params}&builder_url=$(url_encode "$GITHUB_SERVER_URL")"
+  params="${params}&scm=$(url_encode "git")"
+  params="${params}&scm_commit=$(url_encode "$git_commit")"
+  params="${params}&scm_branch=$(url_encode "$git_branch")"
+  params="${params}&scm_origin=$(url_encode "$git_url")
+
+
   # Determine the URL to call
   local proxy_port=12345
-  local start_url="http://$PROXY_IP:$proxy_port/start"
+  local start_url="https://pse.invisirisk.com/start"
   
   log "Calling start URL: $start_url"
   
   # Try curl first, then wget if available
-  if command -v curl >/dev/null 2>&1; then
-    log "Using curl to call start URL"
-    if ! curl -s -S -f "$start_url"; then
-      log "ERROR: Failed to start capture using curl"
-      return 1
-    fi
-  elif command -v wget >/dev/null 2>&1; then
-    log "Using wget to call start URL"
-    if ! wget -q -O - "$start_url"; then
-      log "ERROR: Failed to start capture using wget"
-      return 1
-    fi
-  else
-    log "ERROR: Neither curl nor wget is available. Cannot start capture."
-    return 1
-  fi
+  RESPONSE=$(curl -X POST "https://pse.invisirisk.com/start" \
+      -H 'Content-Type: application/x-www-form-urlencoded' \
+      -H 'User-Agent: pse-action' \
+      -d "$params" \
+      -k --tlsv1.2 --insecure \
+      --retry 3 --retry-delay 2 --max-time 10 \
+      -s -w "\n%{http_code}" 2>&1)
+
+  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+  RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
   
-  log "Capture started successfully"
+  if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+    log "Start signal sent successfully (HTTP $HTTP_CODE)"
+    log "Response: $RESPONSE_BODY"
+    return 0
+  else
+    log "Failed to send start signal (HTTP $HTTP_CODE)"
+    log "Response: $RESPONSE_BODY"
+    log "Retrying in $RETRY_DELAY seconds..."
+    sleep $RETRY_DELAY
+    RETRY_DELAY=$((RETRY_DELAY * 2))
+    ATTEMPT=$((ATTEMPT + 1))
+  fi
+
   return 0
 }
 
