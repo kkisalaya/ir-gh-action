@@ -188,11 +188,11 @@ prepare_scan_id() {
   
   # Make API request to create scan
   local RESPONSE
-  RESPONSE=$(curl -L -s -X POST "$API_ENDPOINT" \
+  RESPONSE=$(curl -L -v -X POST "$API_ENDPOINT" \
     -H "Content-Type: application/json" \
-    -d '{"api_key":"$APP_TOKEN"}')
+    -d "{\"api_key\":\"$APP_TOKEN\"}")
   
-  log "API response received"
+  log "API response received: $RESPONSE"
   
   # Check if response contains an error
   if echo "$RESPONSE" | grep -q "error"; then
