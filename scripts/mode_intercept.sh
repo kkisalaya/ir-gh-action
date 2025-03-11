@@ -41,9 +41,14 @@ run_with_privilege() {
 validate_environment() {
   log "Validating environment variables for intercept mode"
   
-  # Check if PROXY_IP is set, if not try to discover it
-  if [ -z "$PROXY_IP" ] && [ -z "$PROXY_HOSTNAME" ]; then
-    log "PROXY_IP or PROXY_HOSTNAME not provided, attempting to discover PSE proxy IP"
+  # If PROXY_IP is not set, try to discover it (regardless of whether PROXY_HOSTNAME is set)
+  if [ -z "$PROXY_IP" ]; then
+    if [ -z "$PROXY_HOSTNAME" ]; then
+      log "PROXY_IP or PROXY_HOSTNAME not provided, attempting to discover PSE proxy IP"
+    else
+      log "PROXY_HOSTNAME provided but PROXY_IP not set, resolving hostname to IP"
+    fi
+    
     discovered_ip=$(discover_pse_proxy_ip)
     
     if [ -n "$discovered_ip" ]; then
@@ -185,68 +190,17 @@ setup_iptables() {
   
   # Configure iptables rules
   local proxy_port=12345
-  local target_ip
   
-  # Always use the specific approach to get the proxy's IP
-  log "Getting PSE proxy container IP using container name from docker ps"
-  
-  # Get the container name for the PSE proxy
-  CONTAINER_NAME=$(run_with_privilege docker ps --filter "ancestor=282904853176.dkr.ecr.us-west-2.amazonaws.com/invisirisk/pse-proxy:latest" --format "{{.Names}}")
-  
-  if [ -n "$CONTAINER_NAME" ]; then
-    log "Found PSE proxy container: $CONTAINER_NAME"
-    
-    # Get the IP address from the container
-    PSE_IP=$(run_with_privilege docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME")
-    
-    if [ -n "$PSE_IP" ]; then
-      log "Successfully obtained PSE proxy IP: $PSE_IP"
-      # Override any existing PROXY_IP with the discovered one
-      export PROXY_IP="$PSE_IP"
-      echo "PSE_PROXY_IP=$PSE_IP" >> $GITHUB_ENV
-      log "Using discovered proxy IP: $PSE_IP"
-    else
-      log "Warning: Could not get IP address from container $CONTAINER_NAME"
-    fi
-  else
-    log "Warning: Could not find PSE proxy container"
-  fi
-  
-  # Check if we're using hostname instead of IP
-  if [ -n "$PROXY_HOSTNAME" ]; then
-    log "Using proxy hostname: $PROXY_HOSTNAME"
-    
-    # Try to resolve hostname to IP if possible
-    if command -v getent > /dev/null 2>&1; then
-      RESOLVED_IP=$(getent hosts $PROXY_HOSTNAME | awk '{ print $1 }' | head -n 1)
-      if [ -n "$RESOLVED_IP" ]; then
-        log "Resolved $PROXY_HOSTNAME to IP: $RESOLVED_IP"
-        target_ip="$RESOLVED_IP"
-      else
-        log "Could not resolve hostname to IP, using PROXY_IP if available"
-        target_ip="$PROXY_IP"
-      fi
-    else
-      log "getent not available, using PROXY_IP if available"
-      target_ip="$PROXY_IP"
-    fi
-  else
-    # Use the provided PROXY_IP
-    target_ip="$PROXY_IP"
-    log "Using provided proxy IP for iptables: $target_ip"
-  fi
-  
-  # Double check that target_ip is actually set
-  if [ -z "$target_ip" ]; then
-    log "ERROR: Could not determine target IP for iptables!"
+  # By this point, PROXY_IP should be set either directly or via discover_pse_proxy_ip
+  # in the validate_environment function
+  if [ -z "$PROXY_IP" ]; then
+    log "ERROR: PROXY_IP is not set. This should not happen as validation should have caught this."
     log "Here are the available environment variables that might help debug:"
     env | grep -E 'PROXY|PSE|GITHUB_' || true
-    log "Check that you're passing either proxy_ip or proxy_hostname correctly"
     exit 1
   fi
   
-  # Set up iptables rules to redirect HTTPS traffic to the PSE proxy
-  log "Setting up iptables rules to redirect HTTPS traffic to $target_ip:$proxy_port"
+  log "Using proxy IP for iptables: $PROXY_IP"
   
   # Check if iptables is available
   if ! command -v iptables >/dev/null 2>&1; then
@@ -265,7 +219,7 @@ setup_iptables() {
   fi
   
   # Add iptables rules
-  run_with_privilege iptables -t nat -A OUTPUT -p tcp --dport 443 -j DNAT --to-destination "$target_ip:$proxy_port"
+  run_with_privilege iptables -t nat -A OUTPUT -p tcp --dport 443 -j DNAT --to-destination "$PROXY_IP:$proxy_port"
   run_with_privilege iptables -t nat -A POSTROUTING -j MASQUERADE
   
   log "iptables rules set up successfully"
