@@ -193,10 +193,10 @@ display_container_logs() {
     return 0
   fi
   
-  # Check if container exists or existed
+  # Check if container exists or existed, but this is a non critical error
   if ! sudo docker ps -a -q -f name="$container_name" > /dev/null 2>&1; then
     log "Container $container_name not found, cannot display logs"
-    return 1
+    return 0
   fi
   
   # Display a separator for better readability
