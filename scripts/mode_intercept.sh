@@ -359,86 +359,69 @@ setup_iptables() {
 
 # Function to set up certificates
 setup_certificates() {
-  log "Setting up certificates"
+  log "Setting up certificates for HTTPS interception"
   
-  # Check if in test mode
-  if [ "$TEST_MODE" = "true" ]; then
-    log "Running in TEST_MODE, skipping certificate setup"
-    return 0
+  MAX_RETRIES=5
+  RETRY_DELAY=3
+  ATTEMPT=1
+  
+  # Create directory for extra CA certificates if it doesn't exist
+  run_with_privilege mkdir -p /usr/local/share/ca-certificates/extra
+  log "Created directory for extra CA certificates"
+  
+  while [ $ATTEMPT -le $MAX_RETRIES ]; do
+    log "Fetching CA certificate, attempt $ATTEMPT of $MAX_RETRIES"
+    if curl -L -k -s -o /tmp/pse.crt https://pse.invisirisk.com/ca; then
+      # Copy to the proper location for Ubuntu/Debian
+      run_with_privilege cp /tmp/pse.crt /usr/local/share/ca-certificates/extra/pse.crt
+      log "CA certificate successfully retrieved and copied to /usr/local/share/ca-certificates/extra/"
+      break
+    else
+      log "Failed to retrieve CA certificate, retrying in $RETRY_DELAY seconds..."
+      sleep $RETRY_DELAY
+      RETRY_DELAY=$((RETRY_DELAY * 2))
+      ATTEMPT=$((ATTEMPT + 1))
+    fi
+  done
+  
+  if [ $ATTEMPT -gt $MAX_RETRIES ]; then
+    log "ERROR: Failed to retrieve CA certificate after $MAX_RETRIES attempts"
+    exit 1
   fi
   
-  # Determine certificate endpoint
-  local cert_endpoint
-  local cert_host
+  # Update CA certificates non-interactively
+  log "Updating CA certificates..."
+  run_with_privilege update-ca-certificates
   
-  if [ -n "$PROXY_HOSTNAME" ]; then
-    cert_host="$PROXY_HOSTNAME"
+  # Set the correct path for the installed certificate
+  CA_CERT_PATH="/etc/ssl/certs/pse.crt"
+  
+  # Verify the certificate was properly installed
+  if [ -f "$CA_CERT_PATH" ]; then
+    log "CA certificate successfully installed at $CA_CERT_PATH"
   else
-    cert_host="$PROXY_IP"
-  fi
-  
-  cert_endpoint="https://pse.invisirisk.com/ca"
-  log "Getting certificate from $cert_endpoint"
-  
-  # Create certificate directory
-  echo "Creating cert directory"
-  local cert_dir="/usr/local/share/ca-certificates"
-  run_with_privilege mkdir -p "$cert_dir"
-  
-  # Download certificate
-  echo "running curl to get certificate"
-  local cert_file="$cert_dir/pse-ca.crt"
-  run_with_privilege curl -s -k -o "$cert_file" "$cert_endpoint"
-  echo "Ran curl"
-  
-  # Check if certificate was downloaded successfully
-  if [ ! -s "$cert_file" ]; then
-    log "ERROR: Failed to download certificate from $cert_endpoint"
-    log "Trying alternative methods..."
-    
-    # Try alternative methods to get the certificate
-    run_with_privilege curl -s -k -o "$cert_file" "https://pse.invisirisk.com/ca"
-    
-    if [ ! -s "$cert_file" ]; then
-      log "ERROR: All certificate download attempts failed"
-      exit 1
+    # Try to find the actual location
+    CA_CERT_PATH=$(find /etc/ssl/certs -name "*pse*" | head -n 1)
+    if [ -z "$CA_CERT_PATH" ]; then
+      log "WARNING: Could not locate installed CA certificate, using default path"
+      CA_CERT_PATH="/etc/ssl/certs/pse.crt"
+    else
+      log "Found CA certificate at $CA_CERT_PATH"
     fi
   fi
   
-  # Update CA certificates
-  if command -v update-ca-certificates >/dev/null 2>&1; then
-    run_with_privilege update-ca-certificates
-  elif command -v update-ca-trust >/dev/null 2>&1; then
-    run_with_privilege update-ca-trust
-  else
-    log "WARNING: Could not update CA certificates. Certificate may not be trusted."
-  fi
+  # Configure Git to use our CA
+  git config --global http.sslCAInfo "$CA_CERT_PATH"
   
-  # Set up certificate for Python
-  if command -v python3 >/dev/null 2>&1; then
-    log "Setting up certificate for Python"
-    
-    # Create Python certificate directory
-    local python_cert_dir="/etc/python/cert"
-    run_with_privilege mkdir -p "$python_cert_dir"
-    
-    # Copy certificate to Python directory
-    run_with_privilege cp "$cert_file" "$python_cert_dir/pse-ca.pem"
-    
-    # Set Python certificate environment variable
-    echo "REQUESTS_CA_BUNDLE=$python_cert_dir/pse-ca.pem" >> $GITHUB_ENV
-    echo "SSL_CERT_FILE=$python_cert_dir/pse-ca.pem" >> $GITHUB_ENV
-  fi
+  # Set environment variables for other tools
+  export NODE_EXTRA_CA_CERTS="$CA_CERT_PATH"
+  export REQUESTS_CA_BUNDLE="$CA_CERT_PATH"
   
-  # Set up certificate for Node.js
-  if command -v node >/dev/null 2>&1; then
-    log "Setting up certificate for Node.js"
-    
-    # Set Node.js certificate environment variable
-    echo "NODE_EXTRA_CA_CERTS=$cert_file" >> $GITHUB_ENV
-  fi
+  # Add to GITHUB_ENV to persist these variables
+  echo "NODE_EXTRA_CA_CERTS=$CA_CERT_PATH" >> $GITHUB_ENV
+  echo "REQUESTS_CA_BUNDLE=$CA_CERT_PATH" >> $GITHUB_ENV
   
-  log "Certificates set up successfully"
+  log "Certificates configured successfully"
 }
 
 # Main function
