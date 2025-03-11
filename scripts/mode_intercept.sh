@@ -41,11 +41,20 @@ run_with_privilege() {
 validate_environment() {
   log "Validating environment variables for intercept mode"
   
-  # Check if PROXY_IP is set
+  # Check if PROXY_IP is set, if not try to discover it
   if [ -z "$PROXY_IP" ] && [ -z "$PROXY_HOSTNAME" ]; then
-    log "ERROR: PROXY_IP or PROXY_HOSTNAME must be provided for intercept mode"
-    log "Please provide either proxy_ip or proxy_hostname input parameter"
-    exit 1
+    log "PROXY_IP or PROXY_HOSTNAME not provided, attempting to discover PSE proxy IP"
+    discovered_ip=$(discover_pse_proxy_ip)
+    
+    if [ -n "$discovered_ip" ]; then
+      log "Successfully discovered PSE proxy IP: $discovered_ip"
+      export PROXY_IP="$discovered_ip"
+      echo "PSE_PROXY_IP=$discovered_ip" >> $GITHUB_ENV
+    else
+      log "ERROR: Could not discover PSE proxy IP automatically"
+      log "Please provide either proxy_ip or proxy_hostname input parameter"
+      exit 1
+    fi
   fi
   
   # If SCAN_ID is not set and we're not in test mode, fail
