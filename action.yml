@@ -88,10 +88,10 @@ runs:
         APP_TOKEN: ${{ inputs.cleanup == 'true' && env.PSE_APP_TOKEN || inputs.app_token }}
         PORTAL_URL: ${{ inputs.cleanup == 'true' && env.PSE_PORTAL_URL || inputs.portal_url || inputs.api_url }}
         SCAN_ID: ${{ inputs.scan_id }}
-        DEBUG: ${{ inputs.debug == 'true' || env.DEBUG_FORCE == 'true' ? 'true' : 'false' }}
+        DEBUG: ${{ inputs.debug }}
         TEST_MODE: ${{ inputs.test_mode }}
         GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
         MODE: ${{ inputs.mode }}
         PROXY_IP: ${{ inputs.proxy_ip }}
         PROXY_HOSTNAME: ${{ inputs.proxy_hostname }}
-        DEBUG_FORCE: ${{ inputs.mode == 'intercept' ? 'true' : 'false' }}
+        DEBUG_FORCE: ${{ inputs.mode }}
