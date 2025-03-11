@@ -268,6 +268,7 @@ cleanup_certificates() {
   if [ -f /usr/local/share/ca-certificates/extra/pse.crt ]; then
     log "Removing PSE certificate from CA store"
     sudo rm -f /usr/local/share/ca-certificates/extra/pse.crt
+    log "Running update-ca-certificates"
     sudo update-ca-certificates --fresh
     log "PSE certificate removed"
   elif [ -f /etc/ssl/certs/pse.pem ]; then
