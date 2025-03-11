@@ -33,6 +33,7 @@ run_with_privilege() {
     "$@"
   else
     # Not running as root, use sudo
+    echo "Run using sudo"
     sudo "$@"
   fi
 }
