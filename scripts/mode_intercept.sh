@@ -128,49 +128,80 @@ discover_pse_proxy_ip() {
       log "Using default hostname: $hostname_to_try" >&2
     fi
     
-    # Try with the determined hostname
-    if command -v getent >/dev/null 2>&1; then
+    # Try all available hostname resolution methods in sequence until one succeeds
+    
+    # Method 1: getent
+    if command -v getent >/dev/null 2>&1 && [ -z "$discovered_ip" ]; then
       log "Using getent to resolve hostname $hostname_to_try" >&2
       discovered_ip=$(getent hosts "$hostname_to_try" 2>/dev/null | awk '{ print $1 }' | head -n 1)
       
-      if [ -z "$discovered_ip" ] && [ -n "$alt_hostname" ]; then
+      if [ -n "$discovered_ip" ]; then
+        log "Successfully resolved using getent: $discovered_ip" >&2
+      elif [ -n "$alt_hostname" ]; then
         # Try with alternative hostname if it exists
-        log "Trying alternative hostname: $alt_hostname" >&2
+        log "Trying alternative hostname with getent: $alt_hostname" >&2
         discovered_ip=$(getent hosts "$alt_hostname" 2>/dev/null | awk '{ print $1 }' | head -n 1)
+        if [ -n "$discovered_ip" ]; then
+          log "Successfully resolved alternative hostname using getent: $discovered_ip" >&2
+        fi
       fi
-    elif command -v host >/dev/null 2>&1; then
+    fi
+    
+    # Method 2: host command
+    if command -v host >/dev/null 2>&1 && [ -z "$discovered_ip" ]; then
       log "Using host command to resolve hostname $hostname_to_try" >&2
       discovered_ip=$(host -t A "$hostname_to_try" 2>/dev/null | grep "has address" | head -n 1 | awk '{ print $NF }')
       
-      if [ -z "$discovered_ip" ] && [ -n "$alt_hostname" ]; then
+      if [ -n "$discovered_ip" ]; then
+        log "Successfully resolved using host command: $discovered_ip" >&2
+      elif [ -n "$alt_hostname" ]; then
         # Try with alternative hostname if it exists
-        log "Trying alternative hostname: $alt_hostname" >&2
+        log "Trying alternative hostname with host command: $alt_hostname" >&2
         discovered_ip=$(host -t A "$alt_hostname" 2>/dev/null | grep "has address" | head -n 1 | awk '{ print $NF }')
+        if [ -n "$discovered_ip" ]; then
+          log "Successfully resolved alternative hostname using host command: $discovered_ip" >&2
+        fi
       fi
-    elif command -v nslookup >/dev/null 2>&1; then
+    fi
+    
+    # Method 3: nslookup
+    if command -v nslookup >/dev/null 2>&1 && [ -z "$discovered_ip" ]; then
       log "Using nslookup to resolve hostname $hostname_to_try" >&2
       discovered_ip=$(nslookup "$hostname_to_try" 2>/dev/null | grep "Address:" | tail -n 1 | awk '{ print $2 }')
       
-      if [ -z "$discovered_ip" ] && [ -n "$alt_hostname" ]; then
+      if [ -n "$discovered_ip" ]; then
+        log "Successfully resolved using nslookup: $discovered_ip" >&2
+      elif [ -n "$alt_hostname" ]; then
         # Try with alternative hostname if it exists
-        log "Trying alternative hostname: $alt_hostname" >&2
+        log "Trying alternative hostname with nslookup: $alt_hostname" >&2
         discovered_ip=$(nslookup "$alt_hostname" 2>/dev/null | grep "Address:" | tail -n 1 | awk '{ print $2 }')
+        if [ -n "$discovered_ip" ]; then
+          log "Successfully resolved alternative hostname using nslookup: $discovered_ip" >&2
+        fi
       fi
-    elif command -v ping >/dev/null 2>&1; then
+    fi
+    
+    # Method 4: ping (last resort)
+    if command -v ping >/dev/null 2>&1 && [ -z "$discovered_ip" ]; then
       log "Using ping to resolve hostname $hostname_to_try" >&2
       discovered_ip=$(ping -c 1 "$hostname_to_try" 2>/dev/null | grep "PING" | head -n 1 | awk -F'[()]' '{ print $2 }')
       
-      if [ -z "$discovered_ip" ] && [ -n "$alt_hostname" ]; then
+      if [ -n "$discovered_ip" ]; then
+        log "Successfully resolved using ping: $discovered_ip" >&2
+      elif [ -n "$alt_hostname" ]; then
         # Try with alternative hostname if it exists
-        log "Trying alternative hostname: $alt_hostname" >&2
+        log "Trying alternative hostname with ping: $alt_hostname" >&2
         discovered_ip=$(ping -c 1 "$alt_hostname" 2>/dev/null | grep "PING" | head -n 1 | awk -F'[()]' '{ print $2 }')
+        if [ -n "$discovered_ip" ]; then
+          log "Successfully resolved alternative hostname using ping: $discovered_ip" >&2
+        fi
       fi
     fi
     
     if [ -n "$discovered_ip" ]; then
       log "Successfully resolved PSE proxy IP from hostname: $discovered_ip" >&2
     else
-      log "Could not resolve PSE proxy hostname" >&2
+      log "Could not resolve PSE proxy hostname using any available method" >&2
     fi
   fi
   
