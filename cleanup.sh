@@ -74,6 +74,18 @@ validate_env_vars() {
   log "Environment validation successful"
 }
 
+# Helper function to run commands with or without sudo based on environment
+run_with_privilege() {
+  if [ "$(id -u)" = "0" ]; then
+    # Running as root (common in containers), execute directly
+    "$@"
+  else
+    # Not running as root, use sudo
+    echo "Run using sudo"
+    sudo "$@"
+  fi
+}
+
 # Function to URL encode a string
 url_encode() {
   local string="$1"
@@ -267,15 +279,15 @@ cleanup_certificates() {
   # Remove PSE certificate from the Ubuntu CA store
   if [ -f /usr/local/share/ca-certificates/extra/pse.crt ]; then
     log "Removing PSE certificate from CA store"
-    sudo rm -f /usr/local/share/ca-certificates/extra/pse.crt
+    run_with_privilege rm -f /usr/local/share/ca-certificates/extra/pse.crt
     log "Running update-ca-certificates"
-    sudo update-ca-certificates --fresh
+    run_with_privilege update-ca-certificates --fresh
     log "PSE certificate removed"
   elif [ -f /etc/ssl/certs/pse.pem ]; then
     # Backward compatibility for old installations
     log "Removing legacy PSE certificate"
-    sudo rm -f /etc/ssl/certs/pse.pem
-    sudo update-ca-certificates --fresh
+    run_with_privilege rm -f /etc/ssl/certs/pse.pem
+    run_with_privilege update-ca-certificates --fresh
     log "Legacy PSE certificate removed"
   else
     log "No PSE certificate found to clean up"
