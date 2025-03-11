@@ -188,7 +188,7 @@ prepare_scan_id() {
   
   # Make API request to create scan
   local RESPONSE
-  RESPONSE=$(curl -L-s -X POST "$API_ENDPOINT" \
+  RESPONSE=$(curl -L -s -X POST "$API_ENDPOINT" \
     -H "Content-Type: application/json" \
     -d '{"api_key":"$APP_TOKEN"}')
   
