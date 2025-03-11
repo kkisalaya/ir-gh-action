@@ -247,8 +247,8 @@ EOF
   chmod +x "$CLEANUP_SCRIPT"
   
   # Register the cleanup script with GitHub
-  echo "::add-path::$GITHUB_WORKSPACE"
-  echo "::set-env name=GITHUB_PATH::$GITHUB_PATH:$GITHUB_WORKSPACE"
+  #echo "::add-path::$GITHUB_WORKSPACE"
+  #echo "::set-env name=GITHUB_PATH::$GITHUB_PATH:$GITHUB_WORKSPACE"
   
   log "Cleanup script registered"
 }
