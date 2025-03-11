@@ -128,6 +128,8 @@ get_ecr_credentials() {
   RESPONSE=$(curl -s -X GET "$API_ENDPOINT" )
   
   log "API response received"
+
+  log "API response: $RESPONSE"
   
   # Check if response contains an error
   if echo "$RESPONSE" | grep -q "error"; then
