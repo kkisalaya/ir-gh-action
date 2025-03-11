@@ -7,10 +7,10 @@ branding:
 
 inputs:
   api_url:
-    description: 'URL of the InvisiRisk API (required for setup, optional for cleanup)'
+    description: 'URL of the InvisiRisk API (required for prepare and setup modes)'
     required: false
   app_token:
-    description: 'Authentication token for the InvisiRisk API (required for setup, optional for cleanup)'
+    description: 'Authentication token for the InvisiRisk API (required for prepare and setup modes)'
     required: false
   portal_url:
     description: 'URL of the InvisiRisk Portal (defaults to api_url if not provided)'
@@ -25,7 +25,7 @@ inputs:
     required: false
     default: 'false'
   test_mode:
-    description: 'Enable test mode to bypass API calls and container setup for testing. Use this when you want to test the action without actually running the PSE container.'
+    description: 'Enable test mode to bypass API calls and container setup for testing'
     required: false
     default: 'false'
   cleanup:
@@ -33,19 +33,19 @@ inputs:
     required: false
     default: 'false'
   mode:
-    description: 'The operation mode: "pse_only" sets up only the PSE container, "build_only" configures the build environment, "prepare_only" only prepares credentials and scan ID. Default is "full" which does both PSE setup and build configuration.'
+    description: 'The operation mode: "prepare" only gets scan ID and ECR credentials, "setup" pulls and runs the proxy container, "intercept" configures iptables and certificates. Default is "all" which performs all operations.'
     required: false
-    default: 'full'
+    default: 'all'
   proxy_ip:
-    description: 'IP address of the PSE proxy container when using "build_only" mode. Either proxy_ip or proxy_hostname should be provided when mode is "build_only".'
+    description: 'IP address of the PSE proxy container when using "intercept" mode. Required for intercept mode unless proxy_hostname is provided.'
     required: false
     default: ''
   proxy_hostname:
-    description: 'Hostname of the PSE proxy container when using "build_only" mode with service containers. Use this instead of proxy_ip when the PSE container is running as a service container.'
+    description: 'Hostname of the PSE proxy container when using "intercept" mode with service containers. Use this instead of proxy_ip.'
     required: false
     default: ''
   scan_id:
-    description: 'Scan ID from the setup step. Optional even for cleanup - if not provided, a default value will be used.'
+    description: 'Scan ID from the prepare step. Required for setup and intercept modes unless test_mode is true.'
     required: false
     default: ''
 
@@ -66,15 +66,14 @@ outputs:
   ecr_registry_id:
     description: 'ECR registry ID for accessing the PSE container'
     value: ${{ steps.pse-setup.outputs.ecr_registry_id }}
-  test_op:
-    description: 'Test output for debugging'
-    value: 'test-output-value'
+  proxy_ip:
+    description: 'IP address of the PSE proxy container'
+    value: ${{ steps.pse-setup.outputs.proxy_ip }}
 
 runs:
   using: "composite"
   steps:
-    - name: Run Setup or Cleanup
-      id: pse-setup
+    - id: pse-setup
       shell: bash
       run: |
         if [ "${{ inputs.cleanup }}" = "true" ]; then
@@ -82,251 +81,18 @@ runs:
           $GITHUB_ACTION_PATH/cleanup.sh
         else
           echo "Running PSE setup in ${{ inputs.mode }} mode..."
-          
-          # Handle build_only mode configuration
-          if [ "${{ inputs.mode }}" = "build_only" ]; then
-            echo "Debug: proxy_ip input value = '${{ inputs.proxy_ip }}'"
-            echo "Debug: proxy_hostname input value = '${{ inputs.proxy_hostname }}'"
-            echo "Debug: Current environment variables:"
-            env | grep -E 'PROXY_IP|PROXY_HOSTNAME|GITHUB_' || true
-            
-            # Check if we have a hostname instead of IP
-            if [ -n "${{ inputs.proxy_hostname }}" ]; then
-              echo "Using proxy hostname: ${{ inputs.proxy_hostname }}"
-              echo "PROXY_HOSTNAME=${{ inputs.proxy_hostname }}" >> $GITHUB_ENV
-              
-              # Try to resolve hostname to IP if possible
-              if command -v getent > /dev/null 2>&1; then
-                RESOLVED_IP=$(getent hosts ${{ inputs.proxy_hostname }} | awk '{ print $1 }' | head -n 1)
-                if [ -n "$RESOLVED_IP" ]; then
-                  echo "Resolved ${{ inputs.proxy_hostname }} to IP: $RESOLVED_IP"
-                  echo "PROXY_IP=$RESOLVED_IP" >> $GITHUB_ENV
-                else
-                  echo "Could not resolve hostname to IP, will use hostname directly"
-                fi
-              else
-                echo "getent not available, using hostname directly"
-              fi
-            # If no hostname but IP is provided
-            elif [ -n "${{ inputs.proxy_ip }}" ]; then
-              echo "Using provided proxy IP: ${{ inputs.proxy_ip }}"
-              echo "PROXY_IP=${{ inputs.proxy_ip }}" >> $GITHUB_ENV
-            else
-              echo "WARNING: Neither proxy_ip nor proxy_hostname provided in build_only mode"
-              echo "This may happen in container environments. Will try to resolve..."
-              
-              # Use hardcoded fallback if no proxy information is provided
-              echo "PROXY_IP=172.17.0.2" >> $GITHUB_ENV
-              echo "WARNING: Using fallback proxy IP 172.17.0.2 - check logs for actual IP"
-            fi
-          fi
-          
-          # Create scan in InvisiRisk Portal for all modes except pse_only
-          if [ "${{ inputs.mode }}" = "build_only" ] || [ "${{ inputs.mode }}" = "full" ] || [ "${{ inputs.mode }}" = "prepare_only" ]; then
-            echo "Creating scan in InvisiRisk Portal..."
-            echo "API URL: ${{ inputs.api_url }}/utilityapi/v1/scan"
-            
-            # Test API connectivity first
-            echo "Testing API connectivity..."
-            CONN_TEST=$(curl -L -s -o /dev/null -w "%{http_code}" "${{ inputs.api_url }}")
-            echo "API connection test result: $CONN_TEST"
-            
-            # Dump full curl command with token for debugging (private repo only)
-            echo "DEBUG - FULL CURL COMMAND:"
-            echo "curl -L -v -X POST \"${{ inputs.api_url }}/utilityapi/v1/scan\" \
-              -H \"Content-Type: application/json\" \
-              -H \"User-Agent: pse-action-container\" \
-              -d \"{\\\"api_key\\\": \\\"${{ inputs.app_token }}\\\"}\""
-            
-            # More verbose curl for debugging
-            SCAN_RESPONSE=$(curl -L -v -X POST "${{ inputs.api_url }}/utilityapi/v1/scan" \
-              -H "Content-Type: application/json" \
-              -H "User-Agent: pse-action-container" \
-              -d "{\"api_key\": \"${{ inputs.app_token }}\"}" \
-              2>&1 | tee /tmp/curl_debug.log)
-            
-            # Extract response body from verbose output
-            RESPONSE_BODY=$(cat /tmp/curl_debug.log | grep -v "^*" | grep -v "^>" | grep -v "^<" | grep -v "^}" | tail -n 1)
-            
-            # Print raw response for debugging 
-            echo "API Response (raw): $RESPONSE_BODY"
-            echo "Full debug log saved to /tmp/curl_debug.log"
-            
-            # Make a second attempt with simpler approach if the first one failed
-            if [ -z "$RESPONSE_BODY" ] || echo "$RESPONSE_BODY" | grep -q "detail.*Not Found"; then
-              echo "First attempt failed with 'Not Found'. Trying alternative endpoint..."
-              SCAN_RESPONSE=$(curl -L -s -X POST "${{ inputs.api_url }}/api/v1/scan" \
-                -H "Content-Type: application/json" \
-                -H "User-Agent: pse-action-container" \
-                -d "{\"api_key\": \"${{ inputs.app_token }}\"}")
-              
-              echo "Alternate API Response (masked): $(echo "$SCAN_RESPONSE" | sed 's/"api_key":"[^"]*"/"api_key":"***"/g')"
-              RESPONSE_BODY="$SCAN_RESPONSE"
-            fi
-            
-            # Check if the response contains an error message
-            if echo "$RESPONSE_BODY" | grep -q '"error"'; then
-              echo "Error received from API: $(echo "$RESPONSE_BODY" | grep -o '"error":"[^"]*' | cut -d'"' -f4)"
-              exit 1
-            fi
-            
-            # Define parse_json function
-            parse_json() {
-              local json="$1"
-              local field="$2"
-              
-              # Check if jq is available
-              if command -v jq >/dev/null 2>&1; then
-                # Use jq for more reliable JSON parsing
-                value=$(echo "$json" | jq -r ".$field" 2>/dev/null)
-                if [ "$value" != "null" ] && [ -n "$value" ]; then
-                  echo "$value"
-                  return 0
-                fi
-              fi
-              
-              # Fallback to grep-based extraction
-              value=$(echo "$json" | grep -o "\"$field\":[[:space:]]*\"[^\"]*\"" | cut -d'"' -f4)
-              echo "$value"
-            }
-            
-            # Function to parse nested JSON
-            parse_nested_json() {
-              local json="$1"
-              local parent_field="$2"
-              local child_field="$3"
-              
-              # Check if jq is available
-              if command -v jq >/dev/null 2>&1; then
-                # Use jq for more reliable JSON parsing
-                value=$(echo "$json" | jq -r ".$parent_field.$child_field" 2>/dev/null)
-                if [ "$value" != "null" ] && [ -n "$value" ]; then
-                  echo "$value"
-                  return 0
-                fi
-              fi
-              
-              # Fallback to extracting parent object first, then child field
-              parent_obj=$(echo "$json" | grep -o "\"$parent_field\":[[:space:]]*{[^}]*}" | sed "s/\"$parent_field\":[[:space:]]*//")
-              if [ -n "$parent_obj" ]; then
-                value=$(echo "$parent_obj" | grep -o "\"$child_field\":[[:space:]]*\"[^\"]*\"" | cut -d'"' -f4)
-                echo "$value"
-              fi
-            }
-            
-            # Try to extract scan_id using parse_json function
-            SCAN_ID=$(parse_json "$RESPONSE_BODY" "scan_id")
-            
-            # If first pattern fails, try alternative field name
-            if [ -z "$SCAN_ID" ]; then
-              SCAN_ID=$(parse_json "$RESPONSE_BODY" "id")
-            fi
-            
-            # If still not found, try to extract from data field
-            if [ -z "$SCAN_ID" ]; then
-              # Try to extract nested field
-              SCAN_ID=$(parse_nested_json "$RESPONSE_BODY" "data" "id")
-            fi
-            
-            # If none of the standard patterns worked, try a direct grep
-            if [ -z "$SCAN_ID" ]; then
-              echo "Standard JSON extraction failed, trying direct pattern matching..."
-              # Look for any UUID pattern in the response
-              SCAN_ID=$(echo "$RESPONSE_BODY" | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}' | head -1)
-            fi
-            
-            # If we still don't have a scan ID, try to use a fallback
-            if [ -z "$SCAN_ID" ] && [ "${{ inputs.scan_id }}" != "" ]; then
-              echo "Warning: Could not extract scan ID from API response. Using provided scan_id parameter as fallback."
-              SCAN_ID="${{ inputs.scan_id }}"
-            elif [ -z "$SCAN_ID" ]; then
-              # Generate a UUID as last resort
-              if command -v uuidgen >/dev/null 2>&1; then
-                SCAN_ID=$(uuidgen)
-                echo "Warning: Generated a random UUID as scan ID: $SCAN_ID"
-              else
-                # Fallback UUID generation using /proc/sys/kernel/random/uuid if available
-                if [ -f /proc/sys/kernel/random/uuid ]; then
-                  SCAN_ID=$(cat /proc/sys/kernel/random/uuid)
-                  echo "Warning: Generated a random UUID as scan ID: $SCAN_ID"
-                else
-                  echo "Error: Failed to create scan object or extract scan ID from response, and no fallback available"
-                  exit 1
-                fi
-              fi
-            fi
-            
-            echo "Scan object created with ID: $SCAN_ID"
-            echo "SCAN_ID=$SCAN_ID" >> $GITHUB_ENV
-            echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
-          elif [ "${{ inputs.mode }}" = "pse_only" ]; then
-            # In pse_only mode, we don't need to create a scan, just generate a dummy ID
-            # We'll use this ID only for connecting to the PSE proxy
-            echo "PSE_ONLY mode doesn't need an actual scan, setting up proxy only"
-            # Generate a temporary ID for tracking purposes
-            if [ -n "${{ inputs.scan_id }}" ]; then
-              echo "Using provided scan_id: ${{ inputs.scan_id }}"
-              echo "SCAN_ID=${{ inputs.scan_id }}" >> $GITHUB_ENV
-              echo "scan_id=${{ inputs.scan_id }}" >> $GITHUB_OUTPUT
-            else
-              TEMP_ID="proxy-$(date +%Y%m%d-%H%M%S)"
-              echo "Generated temporary ID: $TEMP_ID"
-              echo "SCAN_ID=$TEMP_ID" >> $GITHUB_ENV
-              echo "scan_id=$TEMP_ID" >> $GITHUB_OUTPUT
-            fi
-          fi
-          
-          # Install jq if needed
-          if ! command -v jq >/dev/null 2>&1; then
-            echo "Installing jq for JSON parsing..."
-            
-            # Check if running as root (common in containers)
-            if [ "$(id -u)" = "0" ]; then
-              # Running as root, no sudo needed
-              if command -v apt-get >/dev/null 2>&1; then
-                apt-get update -qq && apt-get install -y jq
-              elif command -v apk >/dev/null 2>&1; then
-                apk add --no-cache jq
-              elif command -v yum >/dev/null 2>&1; then
-                yum install -y jq
-              else
-                echo "Could not install jq, falling back to grep-based parsing"
-              fi
-            else
-              # Not running as root, try with sudo
-              if command -v sudo >/dev/null 2>&1; then
-                if command -v apt-get >/dev/null 2>&1; then
-                  sudo apt-get update -qq && sudo apt-get install -y jq
-                elif command -v yum >/dev/null 2>&1; then
-                  sudo yum install -y jq
-                else
-                  echo "Could not install jq, falling back to grep-based parsing"
-                fi
-              else
-                echo "Neither root permissions nor sudo available. Cannot install jq."
-                echo "Falling back to grep-based parsing"
-              fi
-            fi
-          else
-            echo "jq is already installed"
-          fi
-          
-          # Run setup script with appropriate mode
           $GITHUB_ACTION_PATH/setup.sh
         fi
       env:
         API_URL: ${{ inputs.cleanup == 'true' && env.PSE_API_URL || inputs.api_url }}
         APP_TOKEN: ${{ inputs.cleanup == 'true' && env.PSE_APP_TOKEN || inputs.app_token }}
         PORTAL_URL: ${{ inputs.cleanup == 'true' && env.PSE_PORTAL_URL || inputs.portal_url || inputs.api_url }}
-        SCAN_ID: ${{ inputs.cleanup == 'true' && (inputs.scan_id || env.SCAN_ID) || env.SCAN_ID }}
-        DEBUG: ${{ inputs.debug }}
+        SCAN_ID: ${{ inputs.scan_id }}
+        DEBUG: ${{ inputs.debug == 'true' || env.DEBUG_FORCE == 'true' ? 'true' : 'false' }}
         TEST_MODE: ${{ inputs.test_mode }}
         GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
         MODE: ${{ inputs.mode }}
-        # For build_only mode, make sure proxy_ip is explicitly set
         PROXY_IP: ${{ inputs.proxy_ip }}
-        # Add a fallback environment variable for the proxy IP if the input is empty
-        PSE_PROXY_FALLBACK: ${{ inputs.mode == 'build_only' && inputs.proxy_ip == '' && '172.17.0.2' || '' }}
-        # Debug mode setting
-        # Set to true if debug flag is true or in build_only mode
-        DEBUG_FORCE: ${{ inputs.mode == 'build_only' && 'true' || 'false' }}
+        PROXY_HOSTNAME: ${{ inputs.proxy_hostname }}
+        PSE_PROXY_FALLBACK: ${{ inputs.mode == 'intercept' && inputs.proxy_ip == '' && '172.17.0.2' || '' }}
+        DEBUG_FORCE: ${{ inputs.mode == 'intercept' && 'true' || 'false' }}
