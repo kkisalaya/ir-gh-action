@@ -132,7 +132,7 @@ signal_build_end() {
   build_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
   
   # Build parameters
-  params="id=$(url_encode "$SCAN_ID")"
+  params="id=$(url_encode "build_id")"
   params="${params}&build_url=$(url_encode "$build_url")"
   params="${params}&status=$(url_encode "${GITHUB_RUN_RESULT:-unknown}")"
   
