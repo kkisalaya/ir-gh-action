@@ -298,7 +298,7 @@ main() {
   log "Starting PSE GitHub Action cleanup"
   
   # Validate environment variables
-  validate_env_vars
+  #validate_env_vars
   
   # Determine if we're in a containerized environment
   IS_CONTAINERIZED=false
