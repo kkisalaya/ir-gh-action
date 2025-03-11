@@ -56,12 +56,8 @@ validate_mode_requirements() {
       ;;
       
     intercept)
-      # For intercept mode, proxy_ip or proxy_hostname is required
-      if [ -z "$PROXY_IP" ] && [ -z "$PROXY_HOSTNAME" ]; then
-        log "ERROR: proxy_ip or proxy_hostname is required for intercept mode"
-        exit 1
-      fi
-      
+      # For intercept mode, scan_id is required unless in test mode
+      # Note: proxy_ip and proxy_hostname are now optional as they can be auto-discovered
       if [ -z "$SCAN_ID" ] && [ "$TEST_MODE" != "true" ]; then
         log "ERROR: scan_id is required for intercept mode when not in test mode"
         exit 1

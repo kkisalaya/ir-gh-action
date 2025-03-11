@@ -57,7 +57,8 @@ validate_environment() {
       echo "PSE_PROXY_IP=$discovered_ip" >> $GITHUB_ENV
     else
       log "ERROR: Could not discover PSE proxy IP automatically"
-      log "Please provide either proxy_ip or proxy_hostname input parameter"
+      log "This may happen if the PSE proxy container is not running or not accessible"
+      log "You can provide proxy_ip or proxy_hostname input parameter to resolve this issue"
       exit 1
     fi
   fi
