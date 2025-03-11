@@ -209,6 +209,105 @@ discover_pse_proxy_ip() {
   echo "$discovered_ip"
 }
 
+# URL encode function
+url_encode() {
+  local string="$1"
+  local strlen=${#string}
+  local encoded=""
+  local pos c o
+  
+  for (( pos=0 ; pos<strlen ; pos++ )); do
+    c=${string:$pos:1}
+    case "$c" in
+      [-_.~a-zA-Z0-9] ) o="${c}" ;;
+      * )               printf -v o '%%%02x' "'$c"
+    esac
+    encoded+="${o}"
+  done
+  echo "${encoded}"
+}
+
+# Function to start the capture by calling the /start endpoint
+start_capture() {
+  log "Starting capture by calling the /start endpoint"
+  
+  # Skip in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping capture start"
+    return 0
+  fi
+  
+  # Ensure we have PROXY_IP
+  if [ -z "$PROXY_IP" ]; then
+    log "ERROR: PROXY_IP is not set. Cannot start capture."
+    exit 1
+  fi
+  
+  # Initialize retry variables
+  local RETRY_DELAY=5
+  local ATTEMPT=1
+  local MAX_ATTEMPTS=3
+  
+  # Get Git information with fallbacks for CI environment
+  git_url=$(git config --get remote.origin.url 2>/dev/null || echo "https://github.com/$GITHUB_REPOSITORY.git")
+  git_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "${GITHUB_REF#refs/heads/}")
+  git_commit=$(git rev-parse HEAD 2>/dev/null || echo "$GITHUB_SHA")
+  repo_name=$(basename -s .git "$git_url" 2>/dev/null || echo "$GITHUB_REPOSITORY")
+  
+  # Build URL for the GitHub run
+  build_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+  
+  # Build parameters
+  params="builder=$(url_encode "samplegithub")"
+  params="${params}&id=$(url_encode "$SCAN_ID")"
+  params="${params}&build_id=$(url_encode "$GITHUB_RUN_ID")"
+  params="${params}&build_url=$(url_encode "$build_url")"
+  params="${params}&project=$(url_encode "${repo_name:-$GITHUB_REPOSITORY}")"
+  params="${params}&workflow=$(url_encode "$GITHUB_WORKFLOW")"
+  params="${params}&builder_url=$(url_encode "$GITHUB_SERVER_URL")"
+  params="${params}&scm=$(url_encode "git")"
+  params="${params}&scm_commit=$(url_encode "$git_commit")"
+  params="${params}&scm_branch=$(url_encode "$git_branch")"
+  params="${params}&scm_origin=$(url_encode "$git_url")"
+
+  log "Sending start signal to PSE service"
+  
+  # Try to send the start signal with retries
+  while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+    log "Attempt $ATTEMPT of $MAX_ATTEMPTS..."
+    
+    RESPONSE=$(curl -X POST "https://pse.invisirisk.com/start" \
+        -H 'Content-Type: application/x-www-form-urlencoded' \
+        -H 'User-Agent: pse-action' \
+        -d "$params" \
+        -k --tlsv1.2 --insecure \
+        --retry 3 --retry-delay 2 --max-time 10 \
+        -s -w "\n%{http_code}" 2>&1)
+
+    HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+    RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
+    
+    if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+      log "Start signal sent successfully (HTTP $HTTP_CODE)"
+      log "Response: $RESPONSE_BODY"
+      return 0
+    else
+      log "Failed to send start signal (HTTP $HTTP_CODE)"
+      log "Response: $RESPONSE_BODY"
+      
+      if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+        log "Retrying in $RETRY_DELAY seconds..."
+        sleep $RETRY_DELAY
+        RETRY_DELAY=$((RETRY_DELAY * 2))
+      fi
+      ATTEMPT=$((ATTEMPT + 1))
+    fi
+  done
+  
+  log "ERROR: Failed to send start signal after $MAX_ATTEMPTS attempts"
+  return 1
+}
+
 # Function to set up iptables rules
 setup_iptables() {
   log "Setting up iptables rules"
@@ -335,79 +434,6 @@ setup_certificates() {
   fi
   
   log "Certificates set up successfully"
-}
-
-# Function to start the capture by calling the /start endpoint
-start_capture() {
-  log "Starting capture by calling the /start endpoint"
-  
-  # Skip in test mode
-  if [ "$TEST_MODE" = "true" ]; then
-    log "Running in TEST_MODE, skipping capture start"
-    return 0
-  fi
-  
-  # Ensure we have PROXY_IP
-  if [ -z "$PROXY_IP" ]; then
-    log "ERROR: PROXY_IP is not set. Cannot start capture."
-    exit 1
-  fi
-  
-  # Get Git information with fallbacks for CI environment
-  git_url=$(git config --get remote.origin.url 2>/dev/null || echo "https://github.com/$GITHUB_REPOSITORY.git")
-  git_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "${GITHUB_REF#refs/heads/}")
-  git_commit=$(git rev-parse HEAD 2>/dev/null || echo "$GITHUB_SHA")
-  repo_name=$(basename -s .git "$git_url" 2>/dev/null || echo "$GITHUB_REPOSITORY")
-  
-  # Build URL for the GitHub run
-  build_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-  
-  # Build parameters
-  params="builder=$(url_encode "samplegithub")"
-  params="${params}&id=$(url_encode "$SCAN_ID")"
-  params="${params}&build_id=$(url_encode "$GITHUB_RUN_ID")"
-  params="${params}&build_url=$(url_encode "$build_url")"
-  params="${params}&project=$(url_encode "${repo_name:-$GITHUB_REPOSITORY}")"
-  params="${params}&workflow=$(url_encode "$GITHUB_WORKFLOW")"
-  params="${params}&builder_url=$(url_encode "$GITHUB_SERVER_URL")"
-  params="${params}&scm=$(url_encode "git")"
-  params="${params}&scm_commit=$(url_encode "$git_commit")"
-  params="${params}&scm_branch=$(url_encode "$git_branch")"
-  params="${params}&scm_origin=$(url_encode "$git_url")
-
-
-  # Determine the URL to call
-  local proxy_port=12345
-  local start_url="https://pse.invisirisk.com/start"
-  
-  log "Calling start URL: $start_url"
-  
-  # Try curl first, then wget if available
-  RESPONSE=$(curl -X POST "https://pse.invisirisk.com/start" \
-      -H 'Content-Type: application/x-www-form-urlencoded' \
-      -H 'User-Agent: pse-action' \
-      -d "$params" \
-      -k --tlsv1.2 --insecure \
-      --retry 3 --retry-delay 2 --max-time 10 \
-      -s -w "\n%{http_code}" 2>&1)
-
-  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-  RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
-  
-  if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-    log "Start signal sent successfully (HTTP $HTTP_CODE)"
-    log "Response: $RESPONSE_BODY"
-    return 0
-  else
-    log "Failed to send start signal (HTTP $HTTP_CODE)"
-    log "Response: $RESPONSE_BODY"
-    log "Retrying in $RETRY_DELAY seconds..."
-    sleep $RETRY_DELAY
-    RETRY_DELAY=$((RETRY_DELAY * 2))
-    ATTEMPT=$((ATTEMPT + 1))
-  fi
-
-  return 0
 }
 
 # Main function
