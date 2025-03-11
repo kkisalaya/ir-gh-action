@@ -141,7 +141,9 @@ get_ecr_credentials() {
   
   # Parse the response to get the token
   local DECODED_TOKEN
-  DECODED_TOKEN=$(parse_json "$RESPONSE" "data")
+  local DATA_FIELD
+  DATA_FIELD=$(parse_json "$RESPONSE" "data")
+  DECODED_TOKEN=$(echo "$DATA_FIELD" | base64 --decode)
   
   # Extract ECR credentials
   ECR_USERNAME=$(parse_json "$DECODED_TOKEN" "username")
