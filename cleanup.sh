@@ -127,16 +127,11 @@ signal_build_end() {
     return 1
   fi
   
-  # Determine which endpoint to use
-  if [ -n "$PSE_PROXY_HOSTNAME" ]; then
-    # If we have a proxy hostname from the setup step, use it
-    BASE_URL="https://$PSE_PROXY_HOSTNAME"
-    log "Using proxy hostname for PSE endpoint: $BASE_URL"
-  else
-    # Default to PSE endpoint directly
-    BASE_URL="https://pse.invisirisk.com"
-    log "Using default PSE endpoint: $BASE_URL"
-  fi
+
+  # Default to PSE endpoint directly
+  BASE_URL="https://pse.invisirisk.com"
+  log "Using default PSE endpoint: $BASE_URL"
+
   
   # Build URL for the GitHub run
   build_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
