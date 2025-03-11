@@ -153,6 +153,8 @@ signal_build_end() {
       -k --tlsv1.2 --insecure \
       --retry 3 --retry-delay 2 --max-time 10 \
       -s -w "\n%{http_code}" 2>&1)
+
+    echo "Response: $RESPONSE"
     
     HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
     RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
