@@ -120,14 +120,12 @@ get_ecr_credentials() {
   fi
   
   # Construct API URL for ECR credentials
-  local API_ENDPOINT="$API_URL/utilityapi/v1/ecr"
+  local API_ENDPOINT="$API_URL/utilityapi/v1/registry?api_key=$APP_TOKEN"
   log "Obtaining ECR credentials from $API_ENDPOINT"
   
   # Make API request to get ECR credentials
   local RESPONSE
-  RESPONSE=$(curl -s -X GET "$API_ENDPOINT" \
-    -H "Authorization: Bearer $APP_TOKEN" \
-    -H "Content-Type: application/json")
+  RESPONSE=$(curl -s -X GET "$API_ENDPOINT" )
   
   log "API response received"
   
@@ -187,9 +185,8 @@ prepare_scan_id() {
   # Make API request to create scan
   local RESPONSE
   RESPONSE=$(curl -s -X POST "$API_ENDPOINT" \
-    -H "Authorization: Bearer $APP_TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"name":"GitHub Action Scan","description":"Scan created by GitHub Action"}')
+    -d '{"api_key":"$APP_TOKEN"}')
   
   log "API response received"
   
