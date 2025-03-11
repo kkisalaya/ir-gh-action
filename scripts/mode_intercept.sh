@@ -337,6 +337,50 @@ setup_certificates() {
   log "Certificates set up successfully"
 }
 
+# Function to start the capture by calling the /start endpoint
+start_capture() {
+  log "Starting capture by calling the /start endpoint"
+  
+  # Skip in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping capture start"
+    return 0
+  fi
+  
+  # Ensure we have PROXY_IP
+  if [ -z "$PROXY_IP" ]; then
+    log "ERROR: PROXY_IP is not set. Cannot start capture."
+    exit 1
+  fi
+  
+  # Determine the URL to call
+  local proxy_port=12345
+  local start_url="http://$PROXY_IP:$proxy_port/start"
+  
+  log "Calling start URL: $start_url"
+  
+  # Try curl first, then wget if available
+  if command -v curl >/dev/null 2>&1; then
+    log "Using curl to call start URL"
+    if ! curl -s -S -f "$start_url"; then
+      log "ERROR: Failed to start capture using curl"
+      return 1
+    fi
+  elif command -v wget >/dev/null 2>&1; then
+    log "Using wget to call start URL"
+    if ! wget -q -O - "$start_url"; then
+      log "ERROR: Failed to start capture using wget"
+      return 1
+    fi
+  else
+    log "ERROR: Neither curl nor wget is available. Cannot start capture."
+    return 1
+  fi
+  
+  log "Capture started successfully"
+  return 0
+}
+
 # Main function
 main() {
   log "Starting PSE GitHub Action intercept mode"
@@ -344,6 +388,7 @@ main() {
   validate_environment
   setup_iptables
   setup_certificates
+  start_capture
   
   log "Intercept mode completed successfully"
   log "HTTPS traffic is now being intercepted by the PSE proxy"
