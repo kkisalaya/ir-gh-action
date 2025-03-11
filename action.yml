@@ -94,5 +94,4 @@ runs:
         MODE: ${{ inputs.mode }}
         PROXY_IP: ${{ inputs.proxy_ip }}
         PROXY_HOSTNAME: ${{ inputs.proxy_hostname }}
-        PSE_PROXY_FALLBACK: ${{ inputs.mode == 'intercept' && inputs.proxy_ip == '' && '172.17.0.2' || '' }}
-        DEBUG_FORCE: ${{ inputs.mode == 'intercept' && 'true' || 'false' }}
+        DEBUG_FORCE: ${{ inputs.mode == 'intercept' ? 'true' : 'false' }}

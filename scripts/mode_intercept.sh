@@ -38,15 +38,22 @@ run_with_privilege() {
 }
 
 # Validate required environment variables
-validate_env_vars() {
-  local required_vars=("SCAN_ID")
+validate_environment() {
+  log "Validating environment variables for intercept mode"
   
-  for var in "${required_vars[@]}"; do
-    if [ -z "${!var}" ]; then
-      log "ERROR: Required environment variable $var is not set"
-      exit 1
-    fi
-  done
+  # Check if PROXY_IP is set
+  if [ -z "$PROXY_IP" ] && [ -z "$PROXY_HOSTNAME" ]; then
+    log "ERROR: PROXY_IP or PROXY_HOSTNAME must be provided for intercept mode"
+    log "Please provide either proxy_ip or proxy_hostname input parameter"
+    exit 1
+  fi
+  
+  # If SCAN_ID is not set and we're not in test mode, fail
+  if [ -z "$SCAN_ID" ] && [ "$TEST_MODE" != "true" ]; then
+    log "ERROR: SCAN_ID must be provided for intercept mode when not in test mode"
+    log "Please provide scan_id input parameter or run in test mode"
+    exit 1
+  fi
   
   log "Environment validation successful"
 }
@@ -270,7 +277,7 @@ setup_certificates() {
 main() {
   log "Starting PSE GitHub Action intercept mode"
   
-  validate_env_vars
+  validate_environment
   setup_iptables
   setup_certificates
   
