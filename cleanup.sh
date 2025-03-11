@@ -121,11 +121,6 @@ signal_build_end() {
     return 0
   fi
   
-  # Check if SCAN_ID is set
-  if [ -z "$SCAN_ID" ]; then
-    log "ERROR: SCAN_ID is not set, cannot signal build end"
-    return 1
-  fi
   
 
   # Default to PSE endpoint directly
