@@ -437,13 +437,13 @@ setup_certificates() {
     # Add to GITHUB_ENV to persist this variable
     echo "DOCKER_CERT_PATH=/etc/docker/certs.d/pse.crt" >> $GITHUB_ENV
 
-    if command -v systemctl >/dev/null 2>&1; then
-      echo "Restarting docker with systemctl"
-      run_with_privilege systemctl restart docker
-    else
-      echo "Restarting docker with service"
-      run_with_privilege service docker restart
-    fi
+ #   if command -v systemctl >/dev/null 2>&1; then
+ #     echo "Restarting docker with systemctl"
+ #     run_with_privilege systemctl restart docker
+ #   else
+ #     echo "Restarting docker with service"
+ #     run_with_privilege service docker restart
+ #   fi
 
   fi
   
