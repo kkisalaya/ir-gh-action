@@ -260,7 +260,7 @@ main() {
   validate_env_vars
   setup_dependencies
   pull_and_start_pse_container
-  signal_build_start
+  #signal_build_start
   register_cleanup
   
   log "Setup mode completed successfully"

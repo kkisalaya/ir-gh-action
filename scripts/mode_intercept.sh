@@ -282,7 +282,7 @@ start_capture() {
         -H 'Content-Type: application/x-www-form-urlencoded' \
         -H 'User-Agent: pse-action' \
         -d "$params" \
-        -k --tlsv1.2 --insecure \
+        -k  \
         --retry 3 --retry-delay 2 --max-time 10 \
         -s -w "\n%{http_code}" 2>&1)
 
