@@ -163,6 +163,7 @@ signal_build_end() {
       -H 'User-Agent: pse-action' \
       -d "$params" \
       -k --tlsv1.2 --insecure \
+      --connect-timeout 5 \
       --retry 3 --retry-delay 2 --max-time 10 \
       -s -w "\n%{http_code}" 2>&1)
 
