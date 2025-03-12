@@ -418,10 +418,35 @@ setup_certificates() {
   # Set environment variables for other tools
   export NODE_EXTRA_CA_CERTS="$CA_CERT_PATH"
   export REQUESTS_CA_BUNDLE="$CA_CERT_PATH"
+
   
   # Add to GITHUB_ENV to persist these variables
   echo "NODE_EXTRA_CA_CERTS=$CA_CERT_PATH" >> $GITHUB_ENV
   echo "REQUESTS_CA_BUNDLE=$CA_CERT_PATH" >> $GITHUB_ENV
+  
+
+  # Add handling for docker
+  if command -v docker >/dev/null 2>&1; then
+    echo "Docker is installed, configuring..."
+    run_with_privilege mkdir -p /etc/docker/certs.d
+    run_with_privilege cp "$CA_CERT_PATH" /etc/docker/certs.d/pse.crt
+
+    export DOCKER_CERT_PATH=/etc/docker/certs.d/pse.crt
+    
+    # Add to GITHUB_ENV to persist this variable
+    echo "DOCKER_CERT_PATH=/etc/docker/certs.d/pse.crt" >> $GITHUB_ENV
+
+    if command -v systemctl >/dev/null 2>&1; then
+      echo "Restarting docker with systemctl"
+      run_with_privilege systemctl restart docker
+    else
+      echo "Restarting docker with service"
+      run_with_privilege service docker restart
+    fi
+
+  fi
+  
+  
   
   log "Certificates configured successfully"
 }
