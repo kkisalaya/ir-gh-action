@@ -437,17 +437,31 @@ setup_certificates() {
     # Add to GITHUB_ENV to persist this variable
     echo "DOCKER_CERT_PATH=/etc/docker/certs.d/pse.crt" >> $GITHUB_ENV
 
- #   if command -v systemctl >/dev/null 2>&1; then
- #     echo "Restarting docker with systemctl"
- #     run_with_privilege systemctl restart docker
- #   else
- #     echo "Restarting docker with service"
- #     run_with_privilege service docker restart
- #   fi
+    if command -v systemctl >/dev/null 2>&1; then
+      echo "Restarting docker with systemctl"
+      run_with_privilege systemctl restart docker
+      RESTART_EXIT_CODE=$?
+      echo "DEBUG: systemctl docker restart exit code: $RESTART_EXIT_CODE"
+    else
+      echo "Restarting docker with service"
+      run_with_privilege service docker restart
+      RESTART_EXIT_CODE=$?
+      echo "DEBUG: service docker restart exit code: $RESTART_EXIT_CODE"
+
+    fi
 
   fi
   
-  
+  # Add a delay to allow Docker to fully restart
+  log "DEBUG: Waiting for Docker to stabilize after restart"
+  sleep 5
+
+  # Verify Docker is running after restart
+  if run_with_privilege docker ps >/dev/null 2>&1; then
+    log "DEBUG: Docker is running after restart"
+  else
+    log "WARNING: Docker may not be running properly after restart"
+  fi
   
   log "Certificates configured successfully"
 }
