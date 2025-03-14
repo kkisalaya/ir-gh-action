@@ -146,6 +146,10 @@ pull_and_start_pse_container() {
   log "Starting an independent docker daemon for proxy"
   run_with_privilege dockerd --host unix:///var/run/docker-proxy.sock --data-root /var/lib/docker-proxy &
 
+  # Wait for the daemon to start
+  echo "Waiting for the proxy daemon to start..."
+  sleep 5
+  
   log "Starting PSE container, in a different daemon"
   run_with_privilege DOCKER_HOST=unix:///var/run/docker-proxy.sock docker run -d --name pse \
     -e PSE_DEBUG_FLAG="--alsologtostderr" \
