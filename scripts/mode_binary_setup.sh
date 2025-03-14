@@ -214,7 +214,7 @@ pull_and_start_pse_container() {
   export PROXY_IP="$PSE_IP"
 
   # Run pse binary
-  run_with_privilege "$PSE_BIN_DIR/pse serve"
+  run_with_privilege "$PSE_BIN_DIR/pse"
   #run_with_privilege "$PSE_BIN_DIR/pse serve --policy $PSE_BIN_DIR/policy.json --config $PSE_BIN_DIR/cfg.yaml" 
   
   # Save the API values to environment for later use
