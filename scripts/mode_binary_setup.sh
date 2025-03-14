@@ -142,32 +142,50 @@ pull_and_start_pse_container() {
     exit 1
   fi
   
- 
-  log "Starting PSE container, in a different daemon"
-  run_with_privilege docker run -d --name pse \
-    -e PSE_DEBUG_FLAG="--alsologtostderr" \
-    -e POLICY_LOG="t" \
-    -e INVISIRISK_JWT_TOKEN="$APP_TOKEN" \
-    -e INVISIRISK_PORTAL="$PORTAL_URL" \
-    -e GITHUB_TOKEN="$GITHUB_TOKEN" \
-    "$PSE_IMAGE"
+  # Extract the PSE binary from the container image without running it
+  log "Extracting PSE binary from container image"
   
-  # Get container IP for iptables configuration using container name from docker ps
-  CONTAINER_NAME=$(run_with_privilege docker ps --filter "ancestor=$PSE_IMAGE" --format "{{.Names}}")
-  log "Found PSE container with name: $CONTAINER_NAME"
+  # Create a temporary directory to store the binary
+  local PSE_BIN_DIR="$GITHUB_WORKSPACE/pse-bin"
+  mkdir -p "$PSE_BIN_DIR"
   
-  # Get the IP address from the container
-  PSE_IP=$(run_with_privilege docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME")
-  log "Obtained PSE container IP: $PSE_IP"
+  # Create a container without starting it
+  local TEMP_CONTAINER_ID
+  TEMP_CONTAINER_ID=$(run_with_privilege docker create "$PSE_IMAGE")
   
-  # If we couldn't get the IP using the container name, fall back to the old method
-  if [ -z "$PSE_IP" ]; then
-    log "Warning: Could not get IP using container name, falling back to container ID 'pse'"
-    PSE_IP=$(run_with_privilege docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pse)
+  if [ -z "$TEMP_CONTAINER_ID" ]; then
+    log "ERROR: Failed to create temporary container from image $PSE_IMAGE"
+    exit 1
   fi
+  
+  # Copy the PSE binary from the container to the host
+  log "Copying PSE binary from container to host"
+  if ! run_with_privilege docker cp "$TEMP_CONTAINER_ID:/pse" "$PSE_BIN_DIR/pse"; then
+    log "ERROR: Failed to copy PSE binary from container"
+    run_with_privilege docker rm "$TEMP_CONTAINER_ID" >/dev/null 2>&1 || true
+    exit 1
+  fi
+  
+  # Make the binary executable
+  run_with_privilege chmod +x "$PSE_BIN_DIR/pse"
+  
+  # Remove the temporary container
+  run_with_privilege docker rm "$TEMP_CONTAINER_ID" >/dev/null 2>&1 || true
+  
+  log "Successfully extracted PSE binary to $PSE_BIN_DIR/pse"
+  
+  # Save the binary path to environment for later use
+  echo "PSE_BINARY_PATH=$PSE_BIN_DIR/pse" >> $GITHUB_ENV
+  
+  
+  # set proxy_ip to the ip of this machine
+  PSE_IP=$(run_with_privilege hostname -I | awk '{print $1}')
   
   export PSE_IP
   export PROXY_IP="$PSE_IP"
+
+  # Run pse binary
+  run_with_privilege "$PSE_BIN_DIR/pse" 
   
   # Save the API values to environment for later use
   echo "PSE_API_URL=$API_URL" >> $GITHUB_ENV
