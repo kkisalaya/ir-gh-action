@@ -143,8 +143,11 @@ pull_and_start_pse_container() {
   fi
   
   # Start PSE container with required environment variables
-  log "Starting PSE container"
-  run_with_privilege docker run -d --name pse \
+  log "Starting an independent docker daemon for proxy"
+  run_with_privilege dockerd --host unix:///var/run/docker-proxy.sock --data-root /var/lib/docker-proxy &
+
+  log "Starting PSE container, in a different daemon"
+  run_with_privilege DOCKER_HOST=unix:///var/run/docker-proxy.sock docker run -d --name pse \
     -e PSE_DEBUG_FLAG="--alsologtostderr" \
     -e POLICY_LOG="t" \
     -e INVISIRISK_JWT_TOKEN="$APP_TOKEN" \
