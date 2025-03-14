@@ -213,10 +213,15 @@ pull_and_start_pse_container() {
   export PSE_IP
   export PROXY_IP="$PSE_IP"
 
-  # Run pse binary
-  # Run this command pse serve
-  run_with_privilege "$PSE_BIN_DIR/pse serve"
-  #run_with_privilege "$PSE_BIN_DIR/pse serve --policy $PSE_BIN_DIR/policy.json --config $PSE_BIN_DIR/cfg.yaml" 
+  # Run pse binary with full command including policy and config
+log "Starting PSE binary in serve mode with policy and config"
+if [ "$(id -u)" = "0" ]; then
+  # Running as root, execute directly
+  "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml"
+else
+  # Not running as root, use sudo
+  sudo "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml"
+fi
   
   # Save the API values to environment for later use
   echo "PSE_API_URL=$API_URL" >> $GITHUB_ENV
