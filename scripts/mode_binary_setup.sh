@@ -214,14 +214,18 @@ pull_and_start_pse_container() {
   export PROXY_IP="$PSE_IP"
 
   # Run pse binary with full command including policy and config
-log "Starting PSE binary in serve mode with policy and config"
-if [ "$(id -u)" = "0" ]; then
-  # Running as root, execute directly
-  "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml"
-else
-  # Not running as root, use sudo
-  sudo "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml"
-fi
+  # when running pse; let's make INVISIRISK_JWT_TOKEN and INVISIRISK_PORTAL available as environment variables at the OS level
+  export INVISIRISK_JWT_TOKEN="$APP_TOKEN"
+  export INVISIRISK_PORTAL="$PORTAL_URL"
+
+  log "Starting PSE binary in serve mode with policy and config"
+  if [ "$(id -u)" = "0" ]; then
+    # Running as root, execute directly
+    "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml"
+  else
+    # Not running as root, use sudo
+    sudo -E "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml"
+  fi
   
   # Save the API values to environment for later use
   echo "PSE_API_URL=$API_URL" >> $GITHUB_ENV
