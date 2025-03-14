@@ -1,5 +1,5 @@
 #!/bin/bash
-# PSE GitHub Action - Setup Script
+# PSE GitHub Action - Binary Setup Script
 # This script pulls and runs the PSE proxy container
 
 # Enable strict error handling
@@ -255,7 +255,7 @@ EOF
 
 # Main function
 main() {
-  log "Starting PSE GitHub Action setup mode"
+  log "Starting PSE GitHub Action binary setup mode"
   
   validate_env_vars
   setup_dependencies
@@ -263,7 +263,7 @@ main() {
   #signal_build_start
   register_cleanup
   
-  log "Setup mode completed successfully"
+  log "Binary setup mode completed successfully"
   log "PSE container is running at IP: $PROXY_IP"
   log "This IP address has been saved to GitHub environment as PSE_PROXY_IP"
   log "Use this value in the intercept mode by setting mode: 'intercept' and proxy_ip: \${{ steps.<step-id>.outputs.proxy_ip }}"

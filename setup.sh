@@ -72,6 +72,19 @@ validate_mode_requirements() {
       fi
       ;;
       
+    binary-setup)
+      # For binary-setup mode, api_url, app_token, and scan_id are required unless in test mode
+      if [ -z "$API_URL" ] || [ -z "$APP_TOKEN" ]; then
+        log "ERROR: api_url and app_token are required for binary-setup mode"
+        exit 1
+      fi
+      
+      if [ -z "$SCAN_ID" ] && [ "$TEST_MODE" != "true" ]; then
+        log "ERROR: scan_id is required for binary-setup mode when not in test mode"
+        exit 1
+      fi
+      ;;
+      
     *)
       # For legacy modes, validate based on their equivalent modes
       case "$MODE" in
@@ -135,6 +148,7 @@ main() {
     cp "$(dirname "$0")/prepare.sh" "$SCRIPTS_DIR/mode_prepare.sh" 2>/dev/null || true
     cp "$(dirname "$0")/scripts/setup.sh" "$SCRIPTS_DIR/mode_setup.sh" 2>/dev/null || true
     cp "$(dirname "$0")/scripts/intercept.sh" "$SCRIPTS_DIR/mode_intercept.sh" 2>/dev/null || true
+    cp "$(dirname "$0")/scripts/mode_binary_setup.sh" "$SCRIPTS_DIR/mode_binary_setup.sh" 2>/dev/null || true
     
     # Make scripts executable
     chmod +x "$SCRIPTS_DIR"/*.sh 2>/dev/null || true
@@ -160,6 +174,17 @@ main() {
         . "$SCRIPTS_DIR/mode_setup.sh"
       else
         log "ERROR: mode_setup.sh script not found in $SCRIPTS_DIR"
+        exit 1
+      fi
+      ;;
+      
+    binary-setup)
+      log "Running in binary-setup mode - pulling and running the PSE proxy container with binary mode"
+      # Source the binary setup script to maintain environment variables
+      if [ -f "$SCRIPTS_DIR/mode_binary_setup.sh" ]; then
+        . "$SCRIPTS_DIR/mode_binary_setup.sh"
+      else
+        log "ERROR: mode_binary_setup.sh script not found in $SCRIPTS_DIR"
         exit 1
       fi
       ;;
@@ -236,7 +261,7 @@ main() {
       ;;
       
     *)
-      log "ERROR: Invalid mode $MODE. Valid modes are 'prepare', 'setup', 'intercept', and 'all'"
+      log "ERROR: Invalid mode $MODE. Valid modes are 'prepare', 'setup', 'intercept', 'binary-setup', and 'all'"
       log "Legacy modes 'full', 'pse_only', 'build_only', and 'prepare_only' are also supported for backward compatibility"
       exit 1
       ;;
