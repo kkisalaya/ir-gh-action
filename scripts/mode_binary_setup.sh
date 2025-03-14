@@ -164,6 +164,8 @@ pull_and_start_pse_container() {
     log "ERROR: Failed to copy PSE binary from container"
     exit 1
   fi
+    # Make the binary executable
+  run_with_privilege chmod +x "$PSE_BIN_DIR/pse"
 
   # Copy the PSE policy from the container to the host
   log "Copying PSE policy from container to host"
@@ -172,6 +174,9 @@ pull_and_start_pse_container() {
     exit 1
   fi
 
+  # Make the policy file readable
+  run_with_privilege chmod +r "$PSE_BIN_DIR/policy.json"
+
   # Copy the PSE config from the container to the host
   log "Copying PSE config from container to host"
   if ! run_with_privilege docker cp "$TEMP_CONTAINER_ID:/cfg.yaml" "$PSE_BIN_DIR/cfg.yaml"; then
@@ -179,17 +184,18 @@ pull_and_start_pse_container() {
     exit 1
   fi
 
+  # Make the config file readable
+  run_with_privilege chmod +r "$PSE_BIN_DIR/cfg.yaml"
+
   # Copy leaks.toml from the container to the host
   log "Copying PSE leaks.toml from container to host"
   if ! run_with_privilege docker cp "$TEMP_CONTAINER_ID:/leaks.toml" "$PSE_BIN_DIR/leaks.toml"; then
     log "ERROR: Failed to copy PSE leaks.toml from container"
-    run_with_privilege docker rm "$TEMP_CONTAINER_ID" >/dev/null 2>&1 || true
     exit 1
   fi
   
-  # Make the binary executable
-  run_with_privilege chmod +x "$PSE_BIN_DIR/pse"
-  
+  # Make the leaks.toml file readable
+  run_with_privilege chmod +r "$PSE_BIN_DIR/leaks.toml"
   
   # Remove the temporary container
   log "Removing temporary container"
