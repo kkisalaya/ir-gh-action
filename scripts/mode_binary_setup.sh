@@ -179,9 +179,6 @@ pull_and_start_pse_container() {
     exit 1
   fi
 
-  # Now run docker rm
-  run_with_privilege docker rm "$TEMP_CONTAINER_ID" >/dev/null 2>&1 || true
-
   # Copy leaks.toml from the container to the host
   log "Copying PSE leaks.toml from container to host"
   if ! run_with_privilege docker cp "$TEMP_CONTAINER_ID:/leaks.toml" "$PSE_BIN_DIR/leaks.toml"; then
