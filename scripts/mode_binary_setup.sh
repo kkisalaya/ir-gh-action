@@ -219,12 +219,13 @@ pull_and_start_pse_container() {
   export INVISIRISK_PORTAL="$PORTAL_URL"
 
   log "Starting PSE binary in serve mode with policy and config"
+  # We need to run pse in background
   if [ "$(id -u)" = "0" ]; then
     # Running as root, execute directly
-    "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml"
+    "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml" &
   else
     # Not running as root, use sudo
-    sudo -E "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml"
+    sudo -E "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml" &
   fi
   
   # Save the API values to environment for later use
