@@ -162,6 +162,30 @@ pull_and_start_pse_container() {
   log "Copying PSE binary from container to host"
   if ! run_with_privilege docker cp "$TEMP_CONTAINER_ID:/pse" "$PSE_BIN_DIR/pse"; then
     log "ERROR: Failed to copy PSE binary from container"
+    exit 1
+  fi
+
+  # Copy the PSE policy from the container to the host
+  log "Copying PSE policy from container to host"
+  if ! run_with_privilege docker cp "$TEMP_CONTAINER_ID:/policy.json" "$PSE_BIN_DIR/policy.json"; then
+    log "ERROR: Failed to copy PSE policy from container"
+    exit 1
+  fi
+
+  # Copy the PSE config from the container to the host
+  log "Copying PSE config from container to host"
+  if ! run_with_privilege docker cp "$TEMP_CONTAINER_ID:/cfg.yaml" "$PSE_BIN_DIR/cfg.yaml"; then
+    log "ERROR: Failed to copy PSE config from container"
+    exit 1
+  fi
+
+  # Now run docker rm
+  run_with_privilege docker rm "$TEMP_CONTAINER_ID" >/dev/null 2>&1 || true
+
+  # Copy leaks.toml from the container to the host
+  log "Copying PSE leaks.toml from container to host"
+  if ! run_with_privilege docker cp "$TEMP_CONTAINER_ID:/leaks.toml" "$PSE_BIN_DIR/leaks.toml"; then
+    log "ERROR: Failed to copy PSE leaks.toml from container"
     run_with_privilege docker rm "$TEMP_CONTAINER_ID" >/dev/null 2>&1 || true
     exit 1
   fi
@@ -169,10 +193,12 @@ pull_and_start_pse_container() {
   # Make the binary executable
   run_with_privilege chmod +x "$PSE_BIN_DIR/pse"
   
+  
   # Remove the temporary container
+  log "Removing temporary container"
   run_with_privilege docker rm "$TEMP_CONTAINER_ID" >/dev/null 2>&1 || true
   
-  log "Successfully extracted PSE binary to $PSE_BIN_DIR/pse"
+  log "Successfully extracted PSE binary and other files to $PSE_BIN_DIR/pse"
   
   # Save the binary path to environment for later use
   echo "PSE_BINARY_PATH=$PSE_BIN_DIR/pse" >> $GITHUB_ENV
@@ -185,7 +211,7 @@ pull_and_start_pse_container() {
   export PROXY_IP="$PSE_IP"
 
   # Run pse binary
-  run_with_privilege "$PSE_BIN_DIR/pse" 
+  run_with_privilege "$PSE_BIN_DIR/pse serve --policy $PSE_BIN_DIR/policy.json --config $PSE_BIN_DIR/cfg.yaml" 
   
   # Save the API values to environment for later use
   echo "PSE_API_URL=$API_URL" >> $GITHUB_ENV
