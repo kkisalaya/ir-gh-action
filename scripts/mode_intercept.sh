@@ -415,6 +415,9 @@ setup_certificates() {
   
   # Configure Git to use our CA
   git config --global http.sslCAInfo "$CA_CERT_PATH"
+  log "Configuring temporarily git to bypass SSL verification"
+git config --global http.sslVerify false
+
   
   # Set environment variables for other tools
   export NODE_EXTRA_CA_CERTS="$CA_CERT_PATH"
