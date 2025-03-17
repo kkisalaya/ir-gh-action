@@ -81,9 +81,43 @@ run_with_privilege() {
     "$@"
   else
     # Not running as root, use sudo
-    echo "Run using sudo"
     sudo "$@"
   fi
+}
+
+# Function to display PSE binary logs
+display_pse_binary_logs() {
+  log "Displaying logs for PSE binary"
+  
+  # Check if in test mode
+  if [ "$TEST_MODE" = "true" ]; then
+    log "Running in TEST_MODE, skipping PSE binary logs display"
+    return 0
+  fi
+  
+  # Check if log file exists
+  if [ -z "$PSE_LOG_FILE" ]; then
+    log "PSE_LOG_FILE environment variable not set, cannot display logs"
+    return 0
+  fi
+  
+  if [ ! -f "$PSE_LOG_FILE" ]; then
+    log "PSE binary log file not found at $PSE_LOG_FILE"
+    return 0
+  fi
+  
+  # Display a separator for better readability
+  echo "================================================================="
+  echo "                   PSE BINARY LOGS                               "
+  echo "================================================================="
+  
+  # Display the log file contents
+  cat "$PSE_LOG_FILE" || log "Failed to display PSE binary logs"
+  
+  # Display another separator
+  echo "================================================================="
+  echo "                END OF PSE BINARY LOGS                           "
+  echo "================================================================="
 }
 
 # Function to URL encode a string
@@ -320,6 +354,11 @@ main() {
   
   # Signal build end to InvisiRisk API
   signal_build_end
+
+  # Display PSE binary logs if we're using the binary setup mode
+  if [ -n "$PSE_LOG_FILE" ]; then
+    display_pse_binary_logs
+  fi
   
   # Only display container logs and clean up container if not in a containerized environment
   # In a containerized environment, the PSE container is managed by GitHub Actions as a service container

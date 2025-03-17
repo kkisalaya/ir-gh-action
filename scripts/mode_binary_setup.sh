@@ -219,15 +219,27 @@ pull_and_start_pse_container() {
   export INVISIRISK_PORTAL="$PORTAL_URL"
 
   log "Starting PSE binary in serve mode with policy and config"
+
+  # Define log file path
+  PSE_LOG_FILE="$GITHUB_WORKSPACE/pse_binary.log"
+  echo "PSE_LOG_FILE=$PSE_LOG_FILE" >> $GITHUB_ENV
+
   # We need to run pse in background
   if [ "$(id -u)" = "0" ]; then
     # Running as root, execute directly
-    "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml" &
+    "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml" > "$PSE_LOG_FILE" 2>&1 &
   else
     # Not running as root, use sudo
-    sudo -E "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml" &
+    sudo -E "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml" > "$PSE_LOG_FILE" 2>&1 &
   fi
   
+  # Save the PSE process ID to be able to terminate it later if needed
+  PSE_PID=$!
+  echo "PSE_PID=$PSE_PID" >> $GITHUB_ENV
+
+  # Give the PSE binary a moment to start up
+  sleep 2
+
   # Save the API values to environment for later use
   echo "PSE_API_URL=$API_URL" >> $GITHUB_ENV
   echo "PSE_APP_TOKEN=$APP_TOKEN" >> $GITHUB_ENV
