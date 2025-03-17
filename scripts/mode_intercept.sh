@@ -415,8 +415,8 @@ setup_certificates() {
   
   # Configure Git to use our CA
   git config --global http.sslCAInfo "$CA_CERT_PATH"
-  log "Configuring temporarily git to bypass SSL verification"
-git config --global http.sslVerify false
+  #log "Configuring temporarily git to bypass SSL verification"
+  #git config --global http.sslVerify false
 
   
   # Set environment variables for other tools
@@ -442,13 +442,13 @@ git config --global http.sslVerify false
 
     if command -v systemctl >/dev/null 2>&1; then
       echo "Restarting docker with systemctl"
-      run_with_privilege systemctl restart docker
-      RESTART_EXIT_CODE=$?
+      #run_with_privilege systemctl restart docker
+      #RESTART_EXIT_CODE=$?
       echo "DEBUG: systemctl docker restart exit code: $RESTART_EXIT_CODE"
     else
       echo "Restarting docker with service"
-      run_with_privilege service docker restart
-      RESTART_EXIT_CODE=$?
+      #run_with_privilege service docker restart
+      #RESTART_EXIT_CODE=$?
       echo "DEBUG: service docker restart exit code: $RESTART_EXIT_CODE"
 
     fi
@@ -457,7 +457,7 @@ git config --global http.sslVerify false
   
   # Add a delay to allow Docker to fully restart
   log "DEBUG: Waiting for Docker to stabilize after restart"
-  sleep 5
+  #sleep 5
 
   # Verify Docker is running after restart
   if run_with_privilege docker ps >/dev/null 2>&1; then

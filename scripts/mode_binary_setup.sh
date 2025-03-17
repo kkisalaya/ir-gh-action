@@ -230,9 +230,11 @@ pull_and_start_pse_container() {
   # We need to run pse in background
   if [ "$(id -u)" = "0" ]; then
     # Running as root, execute directly
+    log "Running pse as root"
     (cd "$PSE_BIN_DIR" && ./pse serve --policy ./policy.json --config ./cfg.yaml > "$PSE_LOG_FILE" 2>&1 &)
   else
     # Not running as root, use sudo
+    log "Running pse with sudo"
     (cd "$PSE_BIN_DIR" && sudo -E ./pse serve --policy ./policy.json --config ./cfg.yaml > "$PSE_LOG_FILE" 2>&1 &)
   fi
   
@@ -240,8 +242,18 @@ pull_and_start_pse_container() {
   PSE_PID=$!
   echo "PSE_PID=$PSE_PID" >> $GITHUB_ENV
 
+  log "PSE binary started with PID: $PSE_PID"
+
   # Give the PSE binary a moment to start up
   sleep 2
+
+  # Check if process with this pid is still running
+  if ! run_with_privilege ps -p "$PSE_PID" > /dev/null 2>&1; then
+    log "ERROR: PSE binary process with PID $PSE_PID not found"
+    exit 1
+  else
+    log "PSE binary process with PID $PSE_PID is running"
+  fi
 
   # Save the API values to environment for later use
   echo "PSE_API_URL=$API_URL" >> $GITHUB_ENV
