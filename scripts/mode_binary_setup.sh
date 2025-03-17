@@ -251,8 +251,15 @@ pull_and_start_pse_container() {
 
   # Check if process with this pid is still running
   if ! run_with_privilege ps -p "$PSE_PID" > /dev/null 2>&1; then
-    log "ERROR: PSE binary process with PID $PSE_PID not found"
-    #exit 1
+    log "ERROR: PSE binary process with PID $PSE_PID not found, trying grep"
+    # Check if pid exists with pgrep, if not, exit. Store the PID in another variable
+    PSE_PID_NEW=$(pgrep -f "$PSE_BIN_DIR/pse serve" || pgrep -f "./pse serve")
+    if [ -z "$PSE_PID_NEW" ]; then
+      log "ERROR: PSE binary process not found"
+      exit 1
+    fi
+    PSE_PID="$PSE_PID_NEW"
+    echo "PSE_PID=$PSE_PID" >> $GITHUB_ENV
   else
     log "PSE binary process with PID $PSE_PID is running"
   fi
