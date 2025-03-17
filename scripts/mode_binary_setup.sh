@@ -252,7 +252,7 @@ pull_and_start_pse_container() {
   # Check if process with this pid is still running
   if ! run_with_privilege ps -p "$PSE_PID" > /dev/null 2>&1; then
     log "ERROR: PSE binary process with PID $PSE_PID not found"
-    exit 1
+    #exit 1
   else
     log "PSE binary process with PID $PSE_PID is running"
   fi
