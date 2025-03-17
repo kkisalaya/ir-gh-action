@@ -230,10 +230,10 @@ pull_and_start_pse_container() {
   # We need to run pse in background
   if [ "$(id -u)" = "0" ]; then
     # Running as root, execute directly
-    "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml" > "$PSE_LOG_FILE" 2>&1 &
+    (cd "$PSE_BIN_DIR" && ./pse serve --policy ./policy.json --config ./cfg.yaml > "$PSE_LOG_FILE" 2>&1 &)
   else
     # Not running as root, use sudo
-    sudo -E "$PSE_BIN_DIR/pse" serve --policy "$PSE_BIN_DIR/policy.json" --config "$PSE_BIN_DIR/cfg.yaml" > "$PSE_LOG_FILE" 2>&1 &
+    (cd "$PSE_BIN_DIR" && sudo -E ./pse serve --policy ./policy.json --config ./cfg.yaml > "$PSE_LOG_FILE" 2>&1 &)
   fi
   
   # Save the PSE process ID to be able to terminate it later if needed
