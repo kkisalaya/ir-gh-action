@@ -277,7 +277,7 @@ pull_and_start_pse_container() {
 
   # Let's run netstat to check if port 12345 is open
   echo "Checking if port 12345 is open ===>"
-  run_with_privilege netstat -tuln | grep 12345
+  run_with_privilege netstat -tuln 
   echo "<==="
 
   # Save the API values to environment for later use
