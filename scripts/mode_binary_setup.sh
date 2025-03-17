@@ -232,14 +232,16 @@ pull_and_start_pse_container() {
     # Running as root, execute directly
     log "Running pse as root"
     (cd "$PSE_BIN_DIR" && ./pse serve --policy ./policy.json --config ./cfg.yaml > "$PSE_LOG_FILE" 2>&1 &)
+    PSE_PID=$(pgrep -f "$PSE_BIN_DIR/pse serve" || pgrep -f "./pse serve")
   else
     # Not running as root, use sudo
     log "Running pse with sudo"
     (cd "$PSE_BIN_DIR" && sudo -E ./pse serve --policy ./policy.json --config ./cfg.yaml > "$PSE_LOG_FILE" 2>&1 &)
+    PSE_PID=$(sudo pgrep -f "$PSE_BIN_DIR/pse serve" || sudo pgrep -f "./pse serve")
   fi
   
   # Save the PSE process ID to be able to terminate it later if needed
-  PSE_PID=$!
+  #PSE_PID=$!
   echo "PSE_PID=$PSE_PID" >> $GITHUB_ENV
 
   log "PSE binary started with PID: $PSE_PID"
