@@ -196,6 +196,9 @@ pull_and_start_pse_container() {
   
   # Make the leaks.toml file readable
   run_with_privilege chmod +r "$PSE_BIN_DIR/leaks.toml"
+
+  echo "Showing directory contents of $PSE_BIN_DIR"
+  run_with_privilege ls -lrth "$PSE_BIN_DIR"
   
   # Remove the temporary container
   log "Removing temporary container"
