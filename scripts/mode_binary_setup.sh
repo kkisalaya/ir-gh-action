@@ -258,11 +258,16 @@ pull_and_start_pse_container() {
       log "ERROR: PSE binary process not found"
       exit 1
     fi
+    log "PSE binary process with PID $PSE_PID_NEW is running"
     PSE_PID="$PSE_PID_NEW"
     echo "PSE_PID=$PSE_PID" >> $GITHUB_ENV
   else
     log "PSE binary process with PID $PSE_PID is running"
   fi
+
+  # Let's run netstat to check if port 12345 is open
+  echo "Checking if port 12345 is open"
+  run_with_privilege netstat -tuln | grep 12345
 
   # Save the API values to environment for later use
   echo "PSE_API_URL=$API_URL" >> $GITHUB_ENV
