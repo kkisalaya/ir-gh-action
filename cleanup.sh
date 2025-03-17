@@ -334,6 +334,12 @@ cleanup_certificates() {
   # Clean up environment variables
   unset NODE_EXTRA_CA_CERTS
   unset REQUESTS_CA_BUNDLE
+
+   # Re-enable IPv6 if it was disabled
+  log "Re-enabling IPv6"
+  run_with_privilege sysctl -w net.ipv6.conf.all.disable_ipv6=0
+  run_with_privilege sysctl -w net.ipv6.conf.default.disable_ipv6=0
+  run_with_privilege sysctl -w net.ipv6.conf.lo.disable_ipv6=0
   
   log "Certificate cleanup completed"
 }

@@ -227,6 +227,12 @@ pull_and_start_pse_container() {
   PSE_LOG_FILE="$GITHUB_WORKSPACE/pse_binary.log"
   echo "PSE_LOG_FILE=$PSE_LOG_FILE" >> $GITHUB_ENV
 
+  # Add this to your mode_binary_setup.sh script before starting the PSE binary
+  log "Temporarily disabling IPv6"
+  run_with_privilege sysctl -w net.ipv6.conf.all.disable_ipv6=1
+  run_with_privilege sysctl -w net.ipv6.conf.default.disable_ipv6=1
+  run_with_privilege sysctl -w net.ipv6.conf.lo.disable_ipv6=1
+
   # We need to run pse in background
   if [ "$(id -u)" = "0" ]; then
     # Running as root, execute directly
