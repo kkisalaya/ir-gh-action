@@ -232,38 +232,42 @@ pull_and_start_pse_container() {
     # Running as root, execute directly
     log "Running pse as root"
     (cd "$PSE_BIN_DIR" && ./pse serve --policy ./policy.json --config ./cfg.yaml > "$PSE_LOG_FILE" 2>&1 &)
-    PSE_PID=$(pgrep -f "$PSE_BIN_DIR/pse serve" || pgrep -f "./pse serve")
   else
     # Not running as root, use sudo
     log "Running pse with sudo"
     (cd "$PSE_BIN_DIR" && sudo -E ./pse serve --policy ./policy.json --config ./cfg.yaml > "$PSE_LOG_FILE" 2>&1 &)
-    PSE_PID=$(sudo pgrep -f "$PSE_BIN_DIR/pse serve" || sudo pgrep -f "./pse serve")
   fi
   
-  # Save the PSE process ID to be able to terminate it later if needed
-  #PSE_PID=$!
-  echo "PSE_PID=$PSE_PID" >> $GITHUB_ENV
-
-  log "PSE binary started with PID: $PSE_PID"
 
   # Give the PSE binary a moment to start up
   sleep 2
 
-  # Check if process with this pid is still running
+  # Find the PSE process ID reliably
+  log "Finding PSE process ID..."
+  if [ "$(id -u)" = "0" ]; then
+    PSE_PID=$(pgrep -f "pse serve" | head -1)
+  else
+    PSE_PID=$(sudo pgrep -f "pse serve" | head -1)
+  fi
+
+  if [ -z "$PSE_PID" ]; then
+    log "ERROR: Could not find PSE process ID"
+    log "Processes containing 'pse':"
+    ps aux | grep pse
+    exit 1
+  fi
+
+  log "PSE binary started with PID: $PSE_PID"
+  echo "PSE_PID=$PSE_PID" >> $GITHUB_ENV
+
+  # Verify the process is running
   if ! run_with_privilege ps -p "$PSE_PID" > /dev/null 2>&1; then
-    log "ERROR: PSE binary process with PID $PSE_PID not found, trying grep"
-    # Check if pid exists with pgrep, if not, exit. Store the PID in another variable
-    PSE_PID_NEW=$(pgrep -f "$PSE_BIN_DIR/pse serve" || pgrep -f "./pse serve")
-    if [ -z "$PSE_PID_NEW" ]; then
-      log "ERROR: PSE binary process not found"
-      exit 1
-    fi
-    log "PSE binary process with PID $PSE_PID_NEW is running"
-    PSE_PID="$PSE_PID_NEW"
-    echo "PSE_PID=$PSE_PID" >> $GITHUB_ENV
+    log "ERROR: PSE binary process with PID $PSE_PID not found"
+    exit 1
   else
     log "PSE binary process with PID $PSE_PID is running"
   fi
+  
 
   # Let's run netstat to check if port 12345 is open
   echo "Checking if port 12345 is open"
