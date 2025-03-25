@@ -360,6 +360,30 @@ setup_iptables() {
   log "iptables rules set up successfully"
 }
 
+
+
+# Function to set up HTTP proxy environment variables
+setup_http_proxy() {
+  log "Setting up HTTP proxy environment variables"
+  
+  export http_proxy=http://127.0.0.1:3128
+  export HTTP_PROXY=http://127.0.0.1:3128
+  export https_proxy=http://127.0.0.1:3128
+  export HTTPS_PROXY=http://127.0.0.1:3128
+  export no_proxy="app.invisirisk.com,localhost,127.0.0.1"
+  export NO_PROXY="app.invisirisk.com,localhost,127.0.0.1"
+  
+  # Add to GitHub environment variables for subsequent steps
+  echo "http_proxy=http://127.0.0.1:3128" >> $GITHUB_ENV
+  echo "HTTP_PROXY=http://127.0.0.1:3128" >> $GITHUB_ENV
+  echo "https_proxy=http://127.0.0.1:3128" >> $GITHUB_ENV
+  echo "HTTPS_PROXY=http://127.0.0.1:3128" >> $GITHUB_ENV
+  echo "no_proxy=app.invisirisk.com,localhost,127.0.0.1" >> $GITHUB_ENV
+  echo "NO_PROXY=app.invisirisk.com,localhost,127.0.0.1" >> $GITHUB_ENV
+  
+  log "HTTP proxy environment variables set successfully"
+}
+
 # Function to set up certificates
 setup_certificates() {
   log "Setting up certificates for HTTPS interception"
@@ -474,7 +498,8 @@ main() {
   log "Starting PSE GitHub Action intercept mode"
   
   validate_environment
-  setup_iptables
+  #setup_iptables
+  setup_http_proxy
   setup_certificates
   start_capture
   
