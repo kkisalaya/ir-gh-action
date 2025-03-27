@@ -103,6 +103,15 @@ display_pse_binary_logs() {
   
   if ! run_with_privilege test -f "$PSE_LOG_FILE"; then
     log "PSE binary log file not found at $PSE_LOG_FILE"
+
+    # Do a pwd to check the directory
+    log "Current directory:"
+    run_with_privilege pwd
+    
+    # List the directory contents for the directory containing $PSE_LOG_FILE
+    log "Directory contents for $(dirname "$PSE_LOG_FILE"):"
+    run_with_privilege ls -alh "$(dirname "$PSE_LOG_FILE")"
+    
     return 0
   fi
   
