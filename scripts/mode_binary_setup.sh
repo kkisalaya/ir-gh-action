@@ -242,7 +242,7 @@ pull_and_start_pse_container() {
   else
     # Not running as root, use sudo
     log "Running pse with sudo"
-    (cd "$PSE_BIN_DIR" && sudo -E ./pse serve --policy ./policy.json --config ./cfg.yaml > "$PSE_LOG_FILE" 2>&1 &)
+    (cd "$PSE_BIN_DIR" && sudo -E ./pse serve --policy ./policy.json --config ./cfg.yaml 2>&1 | sudo tee "$PSE_LOG_FILE" > /dev/null &)
   fi
   
 
