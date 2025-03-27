@@ -243,7 +243,7 @@ pull_and_start_pse_container() {
       if [ -f "$PSE_LOG_FILE" ]; then
         cp "$PSE_LOG_FILE" "$ARTIFACT_LOG_FILE" 2>/dev/null || true
       fi
-      sleep 3
+      sleep 1
     done
   ) &
   LOG_COPY_PID=$!
