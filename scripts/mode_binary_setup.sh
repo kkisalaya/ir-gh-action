@@ -228,6 +228,27 @@ pull_and_start_pse_container() {
   echo "PSE_LOG_FILE=$PSE_LOG_FILE" >> $GITHUB_ENV
   log "PSE_LOG_FILE set to $PSE_LOG_FILE"
 
+  # Create a directory for the log artifacts that will be accessible in the cleanup phase
+  ARTIFACT_DIR="/tmp/pse-artifacts"
+  mkdir -p "$ARTIFACT_DIR"
+  ARTIFACT_LOG_FILE="$ARTIFACT_DIR/pse_binary.log"
+  touch "$ARTIFACT_LOG_FILE"
+  chmod 666 "$ARTIFACT_LOG_FILE"
+  echo "ARTIFACT_LOG_FILE=$ARTIFACT_LOG_FILE" >> $GITHUB_ENV
+  log "ARTIFACT_LOG_FILE set to $ARTIFACT_LOG_FILE"
+
+  # Start a background process to periodically copy the log file to the artifact location
+  (
+    while true; do
+      if [ -f "$PSE_LOG_FILE" ]; then
+        cp "$PSE_LOG_FILE" "$ARTIFACT_LOG_FILE" 2>/dev/null || true
+      fi
+      sleep 3
+    done
+  ) &
+  LOG_COPY_PID=$!
+  log "Started background log copy process with PID: $LOG_COPY_PID"
+
   # Add this to your mode_binary_setup.sh script before starting the PSE binary
   log "Temporarily disabling IPv6"
   run_with_privilege sysctl -w net.ipv6.conf.all.disable_ipv6=1
