@@ -220,6 +220,8 @@ pull_and_start_pse_container() {
   # when running pse; let's make INVISIRISK_JWT_TOKEN and INVISIRISK_PORTAL available as environment variables at the OS level
   export INVISIRISK_JWT_TOKEN="$APP_TOKEN"
   export INVISIRISK_PORTAL="$PORTAL_URL"
+  export PSE_DEBUG_FLAG=--alsologtostderr
+  export POLICY_LOG=t 
 
   log "Starting PSE binary in serve mode with policy and config"
 
