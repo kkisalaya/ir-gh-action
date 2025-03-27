@@ -247,7 +247,15 @@ pull_and_start_pse_container() {
   
 
   # Give the PSE binary a moment to start up
-  sleep 2
+  sleep 5
+
+  # check if the log file is being written to
+  if [ ! -f "$PSE_LOG_FILE" ]; then
+    log "ERROR: PSE log file not found"
+    #exit 1
+  else
+    log "PSE log file found"
+  fi
 
   # Find the PSE process ID reliably
   log "Finding PSE process ID..."
