@@ -101,18 +101,19 @@ display_pse_binary_logs() {
     return 0
   fi
   
-  if [ ! -f "$PSE_LOG_FILE" ]; then
+  if ! run_with_privilege test -f "$PSE_LOG_FILE"; then
     log "PSE binary log file not found at $PSE_LOG_FILE"
     return 0
   fi
   
+
   # Display a separator for better readability
   echo "================================================================="
   echo "                   PSE BINARY LOGS                               "
   echo "================================================================="
   
   # Display the log file contents
-  cat "$PSE_LOG_FILE" || log "Failed to display PSE binary logs"
+  run_with_privilege cat "$PSE_LOG_FILE" || log "Failed to display PSE binary logs"
   
   # Display another separator
   echo "================================================================="
