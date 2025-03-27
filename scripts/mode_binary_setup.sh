@@ -257,6 +257,14 @@ pull_and_start_pse_container() {
     log "PSE log file found"
   fi
 
+  # Do a pwd to check the directory
+  log "Current directory:"
+  run_with_privilege pwd
+  
+  # List the directory contents for the directory containing $PSE_LOG_FILE
+  log "Directory contents for $(dirname "$PSE_LOG_FILE"):"
+  run_with_privilege ls -alh "$(dirname "$PSE_LOG_FILE")"
+
   # Find the PSE process ID reliably
   log "Finding PSE process ID..."
   if [ "$(id -u)" = "0" ]; then
