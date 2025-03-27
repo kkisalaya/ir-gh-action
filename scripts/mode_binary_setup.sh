@@ -226,6 +226,7 @@ pull_and_start_pse_container() {
   # Define log file path
   PSE_LOG_FILE="$GITHUB_WORKSPACE/pse_binary.log"
   echo "PSE_LOG_FILE=$PSE_LOG_FILE" >> $GITHUB_ENV
+  log "PSE_LOG_FILE set to $PSE_LOG_FILE"
 
   # Add this to your mode_binary_setup.sh script before starting the PSE binary
   log "Temporarily disabling IPv6"
