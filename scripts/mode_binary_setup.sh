@@ -226,30 +226,11 @@ pull_and_start_pse_container() {
   log "Starting PSE binary in serve mode with policy and config"
 
   # Define log file path
-  PSE_LOG_FILE="$GITHUB_WORKSPACE/pse_binary.log"
+  PSE_LOG_FILE="/tmp/pse_binary.log"
   echo "PSE_LOG_FILE=$PSE_LOG_FILE" >> $GITHUB_ENV
   log "PSE_LOG_FILE set to $PSE_LOG_FILE"
 
-  # Create a directory for the log artifacts that will be accessible in the cleanup phase
-  ARTIFACT_DIR="/tmp/pse-artifacts"
-  mkdir -p "$ARTIFACT_DIR"
-  ARTIFACT_LOG_FILE="$ARTIFACT_DIR/pse_binary.log"
-  touch "$ARTIFACT_LOG_FILE"
-  chmod 666 "$ARTIFACT_LOG_FILE"
-  echo "ARTIFACT_LOG_FILE=$ARTIFACT_LOG_FILE" >> $GITHUB_ENV
-  log "ARTIFACT_LOG_FILE set to $ARTIFACT_LOG_FILE"
-
-  # Start a background process to periodically copy the log file to the artifact location
-  (
-    while true; do
-      if [ -f "$PSE_LOG_FILE" ]; then
-        cp "$PSE_LOG_FILE" "$ARTIFACT_LOG_FILE" 2>/dev/null || true
-      fi
-      sleep 0.1
-    done
-  ) &
-  LOG_COPY_PID=$!
-  log "Started background log copy process with PID: $LOG_COPY_PID"
+ 
 
   # Add this to your mode_binary_setup.sh script before starting the PSE binary
   log "Temporarily disabling IPv6"
@@ -265,7 +246,7 @@ pull_and_start_pse_container() {
   else
     # Not running as root, use sudo
     log "Running pse with sudo"
-    (cd "$PSE_BIN_DIR" && sudo -E ./pse serve --policy ./policy.json --config ./cfg.yaml 2>&1 | sudo tee "$PSE_LOG_FILE" > /dev/null &)
+    (cd "$PSE_BIN_DIR" && sudo -E ./pse serve --policy ./policy.json --config ./cfg.yaml > "$PSE_LOG_FILE" 2>&1 &)
   fi
   
 
