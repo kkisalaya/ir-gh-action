@@ -187,6 +187,7 @@ pull_and_start_pse_container() {
   # Make the config file readable
   run_with_privilege chmod +r "$PSE_BIN_DIR/cfg.yaml"
 
+
   # Copy leaks.toml from the container to the host
   log "Copying PSE leaks.toml from container to host"
   if ! run_with_privilege docker cp "$TEMP_CONTAINER_ID:/leaks.toml" "$PSE_BIN_DIR/leaks.toml"; then
@@ -196,6 +197,7 @@ pull_and_start_pse_container() {
   
   # Make the leaks.toml file readable
   run_with_privilege chmod +r "$PSE_BIN_DIR/leaks.toml"
+  run_with_privilege cp "$PSE_BIN_DIR/leaks.toml" /tmp/leaks.toml
 
   echo "Showing directory contents of $PSE_BIN_DIR"
   run_with_privilege ls -lrth "$PSE_BIN_DIR"
@@ -242,11 +244,11 @@ pull_and_start_pse_container() {
   if [ "$(id -u)" = "0" ]; then
     # Running as root, execute directly
     log "Running pse as root"
-    (cd "$PSE_BIN_DIR" && ./pse serve --policy ./policy.json --config ./cfg.yaml > "$PSE_LOG_FILE" 2>&1 &)
+    (cd "$PSE_BIN_DIR" && ./pse serve --policy ./policy.json --config ./cfg.yaml --leaks /tmp/leaks.toml > "$PSE_LOG_FILE" 2>&1 &)
   else
     # Not running as root, use sudo
     log "Running pse with sudo"
-    (cd "$PSE_BIN_DIR" && sudo -E ./pse serve --policy ./policy.json --config ./cfg.yaml > "$PSE_LOG_FILE" 2>&1 &)
+    (cd "$PSE_BIN_DIR" && sudo -E ./pse serve --policy ./policy.json --config ./cfg.yaml --leaks /tmp/leaks.toml > "$PSE_LOG_FILE" 2>&1 &)
   fi
   
 
