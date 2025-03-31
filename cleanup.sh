@@ -356,14 +356,16 @@ main() {
     log "Detected containerized build environment using hostname: $PSE_PROXY_HOSTNAME"
     IS_CONTAINERIZED=true
   fi
+
+   # Display PSE binary logs if we're using the binary setup mode
+  if [ -n "$PSE_LOG_FILE" ]; then
+    display_pse_binary_logs
+  fi
   
   # Signal build end to InvisiRisk API
   signal_build_end
 
-  # Display PSE binary logs if we're using the binary setup mode
-  if [ -n "$PSE_LOG_FILE" ]; then
-    display_pse_binary_logs
-  fi
+ 
   
   # Only display container logs and clean up container if not in a containerized environment
   # In a containerized environment, the PSE container is managed by GitHub Actions as a service container
