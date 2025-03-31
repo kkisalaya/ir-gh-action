@@ -244,11 +244,11 @@ pull_and_start_pse_container() {
   if [ "$(id -u)" = "0" ]; then
     # Running as root, execute directly
     log "Running pse as root"
-    (cd "$PSE_BIN_DIR" && ./pse serve --policy ./policy.json --config ./cfg.yaml --leaks /tmp/leaks.toml > "$PSE_LOG_FILE" 2>&1 &)
+    (cd "$PSE_BIN_DIR" && ./pse serve --policy ./policy.json --config ./cfg.yaml --leaks /tmp/leaks.toml --global-session true > "$PSE_LOG_FILE" 2>&1 &)
   else
     # Not running as root, use sudo
     log "Running pse with sudo"
-    (cd "$PSE_BIN_DIR" && sudo -E ./pse serve --policy ./policy.json --config ./cfg.yaml --leaks /tmp/leaks.toml > "$PSE_LOG_FILE" 2>&1 &)
+    (cd "$PSE_BIN_DIR" && sudo -E ./pse serve --policy ./policy.json --config ./cfg.yaml --leaks /tmp/leaks.toml --global-session true > "$PSE_LOG_FILE" 2>&1 &)
   fi
   
 
