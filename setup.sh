@@ -71,6 +71,14 @@ validate_mode_requirements() {
         exit 1
       fi
       ;;
+
+    docker-intercept)
+      # For all mode, api_url and app_token are required
+      if [ -z "$API_URL" ] || [ -z "$APP_TOKEN" ]; then
+        log "ERROR: api_url and app_token are required for all mode"
+        exit 1
+      fi
+      ;;
       
     binary-setup)
       # For binary-setup mode, api_url, app_token, and scan_id are required unless in test mode
@@ -144,93 +152,49 @@ main() {
   if [ ! -d "$SCRIPTS_DIR" ]; then
     mkdir -p "$SCRIPTS_DIR"
     
-    # Copy the mode scripts to the scripts directory
-    cp "$(dirname "$0")/prepare.sh" "$SCRIPTS_DIR/mode_prepare.sh" 2>/dev/null || true
-    cp "$(dirname "$0")/scripts/setup.sh" "$SCRIPTS_DIR/mode_setup.sh" 2>/dev/null || true
-    cp "$(dirname "$0")/scripts/intercept.sh" "$SCRIPTS_DIR/mode_intercept.sh" 2>/dev/null || true
-    cp "$(dirname "$0")/scripts/mode_binary_setup.sh" "$SCRIPTS_DIR/mode_binary_setup.sh" 2>/dev/null || true
-    
-    # Make scripts executable
-    chmod +x "$SCRIPTS_DIR"/*.sh 2>/dev/null || true
+  # Copy and make executable the mode scripts
+  for script in prepare setup intercept binary_setup; do
+    cp "$(dirname "$0")/scripts/mode_${script}.sh" "$SCRIPTS_DIR/" 2>/dev/null || true
+    chmod +x "$SCRIPTS_DIR/mode_${script}.sh" 2>/dev/null || true
+  done
+
   fi
   
-  # Execute the appropriate script based on the mode
+   # Execute the appropriate script based on the mode
   case "$MODE" in
-    prepare)
-      log "Running in prepare mode - obtaining scan ID and ECR credentials"
-      # Source the prepare script to maintain environment variables
-      if [ -f "$SCRIPTS_DIR/mode_prepare.sh" ]; then
-        . "$SCRIPTS_DIR/mode_prepare.sh"
+    prepare|setup|binary-setup|intercept)
+      if [[ -f "$SCRIPTS_DIR/mode_${MODE}.sh" ]]; then
+        . "$SCRIPTS_DIR/mode_${MODE}.sh"
       else
-        log "ERROR: mode_prepare.sh script not found in $SCRIPTS_DIR"
+        log "ERROR: mode_${MODE}.sh script not found in $SCRIPTS_DIR"
         exit 1
       fi
       ;;
-      
-    setup)
-      log "Running in setup mode - pulling and running the PSE proxy container"
-      # Source the setup script to maintain environment variables
-      if [ -f "$SCRIPTS_DIR/mode_setup.sh" ]; then
-        . "$SCRIPTS_DIR/mode_setup.sh"
-      else
-        log "ERROR: mode_setup.sh script not found in $SCRIPTS_DIR"
-        exit 1
-      fi
-      ;;
-      
-    binary-setup)
-      log "Running in binary-setup mode - pulling and running the PSE proxy container with binary mode"
-      # Source the binary setup script to maintain environment variables
-      if [ -f "$SCRIPTS_DIR/mode_binary_setup.sh" ]; then
-        . "$SCRIPTS_DIR/mode_binary_setup.sh"
-      else
-        log "ERROR: mode_binary_setup.sh script not found in $SCRIPTS_DIR"
-        exit 1
-      fi
-      ;;
-      
-    intercept)
-      log "Running in intercept mode - configuring iptables and certificates"
-      # Source the intercept script to maintain environment variables
-      if [ -f "$SCRIPTS_DIR/mode_intercept.sh" ]; then
-        . "$SCRIPTS_DIR/mode_intercept.sh"
-      else
-        log "ERROR: mode_intercept.sh script not found in $SCRIPTS_DIR"
-        exit 1
-      fi
-      ;;
-      
     all)
-      log "Running in all mode - performing all operations"
-      
-      # Run prepare mode
-      log "Step 1: Preparing scan ID and ECR credentials"
-      if [ -f "$SCRIPTS_DIR/mode_prepare.sh" ]; then
-        . "$SCRIPTS_DIR/mode_prepare.sh"
-      else
-        log "ERROR: mode_prepare.sh script not found in $SCRIPTS_DIR"
-        exit 1
-      fi
-      
-      # Run setup mode
-      log "Step 2: Setting up PSE proxy container"
-      if [ -f "$SCRIPTS_DIR/mode_setup.sh" ]; then
-        . "$SCRIPTS_DIR/mode_setup.sh"
-      else
-        log "ERROR: mode_setup.sh script not found in $SCRIPTS_DIR"
-        exit 1
-      fi
-      
-      # Run intercept mode
-      log "Step 3: Configuring iptables and certificates"
-      if [ -f "$SCRIPTS_DIR/mode_intercept.sh" ]; then
-        . "$SCRIPTS_DIR/mode_intercept.sh"
-      else
-        log "ERROR: mode_intercept.sh script not found in $SCRIPTS_DIR"
-        exit 1
-      fi
+      for script in prepare setup intercept; do
+        if [[ -f "$SCRIPTS_DIR/mode_${script}.sh" ]]; then
+          . "$SCRIPTS_DIR/mode_${script}.sh"
+        else
+          log "ERROR: mode_${script}.sh script not found in $SCRIPTS_DIR"
+          exit 1
+        fi
+      done
       ;;
-      
+    docker-intercept)
+      for script in prepare binary-setup intercept; do
+        if [[ -f "$SCRIPTS_DIR/mode_${script}.sh" ]]; then
+          . "$SCRIPTS_DIR/mode_${script}.sh"
+        else
+          log "ERROR: mode_${script}.sh script not found in $SCRIPTS_DIR"
+          exit 1
+        fi
+      done
+      ;;
+    *)
+      log "ERROR: Invalid mode specified: $MODE"
+      exit 1
+      ;;
+
     # Legacy mode support for backward compatibility
     full)
       log "Running in full mode (legacy) - performing all operations"
