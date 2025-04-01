@@ -162,7 +162,7 @@ main() {
   
    # Execute the appropriate script based on the mode
   case "$MODE" in
-    prepare|setup|binary-setup|intercept)
+    prepare|setup|binary_setup|intercept)
       if [[ -f "$SCRIPTS_DIR/mode_${MODE}.sh" ]]; then
         . "$SCRIPTS_DIR/mode_${MODE}.sh"
       else
@@ -181,7 +181,7 @@ main() {
       done
       ;;
     docker-intercept)
-      for script in prepare binary-setup intercept; do
+      for script in prepare binary_setup intercept; do
         if [[ -f "$SCRIPTS_DIR/mode_${script}.sh" ]]; then
           . "$SCRIPTS_DIR/mode_${script}.sh"
         else
