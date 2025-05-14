@@ -139,49 +139,81 @@ url_encode() {
 
 # Function to get build logs
 get_build_logs() {
-  log "Collecting build logs using GitHub API"
+  log "Collecting build logs"
   local log_content=""
   
-  # Check for GitHub Actions environment
-  if [ -n "$GITHUB_WORKFLOW" ] && [ -n "$GITHUB_REPOSITORY" ] && [ -n "$GITHUB_RUN_ID" ] && [ -n "$GITHUB_TOKEN" ]; then
-    log "Using GitHub API to fetch build logs for run ID: $GITHUB_RUN_ID"
+  # Debug environment variables
+  log "Debug: GITHUB_WORKFLOW=$GITHUB_WORKFLOW, GITHUB_REPOSITORY=$GITHUB_REPOSITORY, GITHUB_RUN_ID=$GITHUB_RUN_ID"
+  
+  # Check for GitHub API access
+  if [ -n "$GITHUB_TOKEN" ] && [ -n "$GITHUB_REPOSITORY" ] && [ -n "$GITHUB_RUN_ID" ]; then
+    log "Attempting to use GitHub API for logs (with token)"
     
-    # Use GitHub API to get logs from the current workflow run
-    local api_response=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+    # Try to get workflow run logs via GitHub API
+    log "Fetching logs for run ID: $GITHUB_RUN_ID"
+    local run_info=$(curl -s -L -H "Authorization: token $GITHUB_TOKEN" \
       -H "Accept: application/vnd.github.v3+json" \
-      "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/logs")
+      "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
     
-    # Check if we got a redirect URL for downloading logs (GitHub returns a download URL)
-    if [[ "$api_response" == *"Message":* ]] || [[ "$api_response" == *"message":* ]]; then
-      log "Error fetching logs: $api_response"
-      log_content="Error fetching logs from GitHub API: $api_response"
-    else
-      # Get logs from the current job steps
-      log "Fetching current job logs"
-      local job_logs=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-        -H "Accept: application/vnd.github.v3+json" \
-        "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/jobs/$GITHUB_JOB/steps")
+    # Debug API response
+    log "GitHub API response length: ${#run_info} bytes"
+    
+    # Extract useful information from run info
+    if [[ -n "$run_info" && "$run_info" != *"message":"Not Found"* ]]; then
+      # Get job information from the workflow run
+      local jobs_url=$(echo "$run_info" | grep -o '"jobs_url":"[^"]*"' | cut -d '"' -f 4 | head -n 1)
       
-      # Extract relevant logs
-      log_content="GitHub Workflow Run ID: $GITHUB_RUN_ID\nJob ID: $GITHUB_JOB\n\n$job_logs\n\n"
-      
-      # Add recent output as additional context
-      if [ -f "/tmp/github_output" ]; then
-        log_content+="\n--- Recent Output ---\n$(tail -n 200 /tmp/github_output 2>/dev/null)"
+      if [ -n "$jobs_url" ]; then
+        log "Fetching jobs information"
+        local jobs_info=$(curl -s -L -H "Authorization: token $GITHUB_TOKEN" \
+          -H "Accept: application/vnd.github.v3+json" \
+          "$jobs_url")
+        
+        # Successfully got job information - add to logs
+        log_content+="GitHub Workflow Run Info:\n"
+        log_content+="Repository: $GITHUB_REPOSITORY\n"
+        log_content+="Run ID: $GITHUB_RUN_ID\n\n"
+        log_content+="Workflow: $GITHUB_WORKFLOW\n"
+        log_content+="Job: $GITHUB_JOB\n\n"
+        log_content+="Job Details:\n$jobs_info\n\n"
+      else
+        log "Could not extract jobs URL from run info"
       fi
+    else
+      log "GitHub API didn't return valid run information, falling back to local sources"
     fi
   else
-    # Fallback for non-GitHub environments or missing required variables
-    log "GitHub environment variables missing, collecting available logs"
-    log_content="Build logs not available: Missing required GitHub environment variables"
-    
-    # Add environment details
-    log_content+="\n\nEnvironment: GITHUB_WORKFLOW=$GITHUB_WORKFLOW, GITHUB_REPOSITORY=$GITHUB_REPOSITORY, GITHUB_RUN_ID=$GITHUB_RUN_ID"
-    
-    # Try to get some local logs as fallback
-    if [ -f "/tmp/github_output" ]; then
-      log_content+="\n\n--- Local Logs ---\n$(tail -n 500 /tmp/github_output 2>/dev/null)"
-    fi
+    log "GitHub API access not available, using local sources only"
+  fi
+  
+  # Always add local logs as a fallback
+  log "Adding local log sources"
+  
+  # Try GitHub Actions step summary
+  if [ -n "$GITHUB_STEP_SUMMARY" ] && [ -f "$GITHUB_STEP_SUMMARY" ]; then
+    log "Reading from GITHUB_STEP_SUMMARY"
+    local step_summary=$(cat "$GITHUB_STEP_SUMMARY")
+    log_content+="\n--- GitHub Step Summary ---\n$step_summary\n"
+  fi
+  
+  # Try build.log in workspace
+  if [ -n "$GITHUB_WORKSPACE" ] && [ -f "$GITHUB_WORKSPACE/build.log" ]; then
+    log "Reading from build.log in workspace"
+    local build_log=$(cat "$GITHUB_WORKSPACE/build.log")
+    log_content+="\n--- build.log ---\n$build_log\n"
+  fi
+  
+  # Try recent output
+  if [ -f "/tmp/github_output" ]; then
+    log "Reading recent output from /tmp/github_output"
+    local recent_output=$(tail -n 300 /tmp/github_output 2>/dev/null)
+    log_content+="\n--- Recent Output ---\n$recent_output\n"
+  fi
+  
+  # If we still have no content, add a minimal placeholder
+  if [ -z "$log_content" ]; then
+    log "No log sources found, using placeholder"
+    log_content="No detailed build logs available for this run.\nEnvironment: GITHUB_WORKFLOW=$GITHUB_WORKFLOW, GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
   fi
   
   # Limit log size to avoid exceeding request limits
@@ -196,72 +228,97 @@ get_build_logs() {
 
 # Function to get workflow YAML
 get_workflow_yaml() {
-  log "Attempting to retrieve workflow YAML using GitHub API"
+  log "Attempting to retrieve workflow YAML"
   local workflow_content=""
   
-  # Check for GitHub Actions environment and required variables
-  if [ -n "$GITHUB_WORKFLOW" ] && [ -n "$GITHUB_REPOSITORY" ] && [ -n "$GITHUB_TOKEN" ] && [ -n "$GITHUB_WORKFLOW_REF" ]; then
+  # Debug environment variables
+  log "Debug: GITHUB_WORKFLOW=$GITHUB_WORKFLOW, GITHUB_WORKFLOW_REF=$GITHUB_WORKFLOW_REF"
+  
+  # Try GitHub API if credentials are available
+  if [ -n "$GITHUB_TOKEN" ] && [ -n "$GITHUB_REPOSITORY" ] && [ -n "$GITHUB_WORKFLOW_REF" ]; then
+    log "Attempting to use GitHub API for workflow YAML"
+    
     # Extract the workflow file path from GITHUB_WORKFLOW_REF
     local workflow_file=""
-    local workflow_ref="$GITHUB_WORKFLOW_REF"
     
-    log "GITHUB_WORKFLOW_REF: $workflow_ref"
-    
-    # Extract workflow file path from GITHUB_WORKFLOW_REF
-    if [[ "$workflow_ref" =~ ^([^@]+) ]]; then
+    if [[ "$GITHUB_WORKFLOW_REF" =~ ^(.+)@.* ]]; then
+      # Extract file path from REF (format: path@ref)
       workflow_file="${BASH_REMATCH[1]}"
-      log "Extracted workflow file path: $workflow_file"
-      
-      # Use GitHub API to get the workflow file content
-      log "Fetching workflow file content from GitHub API"
-      local api_response=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+      log "Extracted workflow path from GITHUB_WORKFLOW_REF: $workflow_file"
+    elif [[ "$GITHUB_WORKFLOW_REF" == .github/workflows/* ]]; then
+      # Direct path format
+      workflow_file="$GITHUB_WORKFLOW_REF"
+      log "Using GITHUB_WORKFLOW_REF directly as path: $workflow_file"
+    else
+      log "Could not parse workflow file path from: $GITHUB_WORKFLOW_REF"
+    fi
+    
+    if [ -n "$workflow_file" ]; then
+      # Try to get the workflow file via GitHub API
+      log "Fetching workflow file via GitHub API: $workflow_file"
+      local api_response=$(curl -s -L -H "Authorization: token $GITHUB_TOKEN" \
         -H "Accept: application/vnd.github.v3.raw" \
         "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/$workflow_file")
       
-      # Check if we got valid content
-      if [[ "$api_response" == *"Message":* ]] || [[ "$api_response" == *"message":* ]]; then
-        log "Error fetching workflow file: $api_response"
-        
-        # Fallback to local file if available
-        if [ -n "$GITHUB_WORKSPACE" ] && [ -f "$GITHUB_WORKSPACE/$workflow_file" ]; then
-          log "Falling back to local workflow file: $GITHUB_WORKSPACE/$workflow_file"
-          workflow_content=$(cat "$GITHUB_WORKSPACE/$workflow_file")
-        else
-          workflow_content="Error fetching workflow YAML from GitHub API: $api_response"
-        fi
-      else
+      # Debug API response
+      log "GitHub API response for workflow file: ${#api_response} bytes"
+      
+      # Check if response looks like YAML
+      if [[ "$api_response" == *"name:"* && "$api_response" == *"on:"* ]]; then
+        log "Successfully retrieved workflow YAML via GitHub API"
         workflow_content="$api_response"
-      fi
-    else
-      log "Could not parse workflow file from GITHUB_WORKFLOW_REF: $workflow_ref"
-      
-      # Try to find workflow file from run information
-      log "Attempting to get workflow from run information"
-      local run_info=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-        -H "Accept: application/vnd.github.v3+json" \
-        "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
-      
-      # Extract workflow path from run info
-      local path_from_run=$(echo "$run_info" | grep -o '\"path\":\"[^\"]*\"' | cut -d '\"' -f 4)
-      
-      if [ -n "$path_from_run" ]; then
-        log "Found workflow path from run info: $path_from_run"
-        
-        # Get workflow content
-        workflow_content=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-          -H "Accept: application/vnd.github.v3.raw" \
-          "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/$path_from_run")
       else
-        workflow_content="Could not determine workflow file path"
+        log "API didn't return valid YAML, will try local file"
       fi
     fi
   else
-    # Fallback for non-GitHub environments or missing required variables
-    log "GitHub environment variables missing, cannot retrieve workflow YAML"
-    workflow_content="Workflow YAML not available: Missing required GitHub environment variables"
+    log "GitHub API access not available for workflow YAML, using local sources"
+  fi
+  
+  # If we don't have the workflow content yet, try local file
+  if [ -z "$workflow_content" ]; then
+    # Try to find workflow file locally
+    local workflow_files=()
     
-    # Add environment details
-    workflow_content+="\n\nEnvironment: GITHUB_WORKFLOW=$GITHUB_WORKFLOW, GITHUB_REPOSITORY=$GITHUB_REPOSITORY, GITHUB_WORKFLOW_REF=$GITHUB_WORKFLOW_REF"
+    # Check standard workflow locations if we have a workspace
+    if [ -n "$GITHUB_WORKSPACE" ]; then
+      log "Looking for workflow files in GitHub workspace"
+      
+      # Check known workflow file locations
+      if [ -n "$GITHUB_WORKFLOW_REF" ]; then
+        # Try to extract just the filename from WORKFLOW_REF
+        local workflow_name=""
+        if [[ "$GITHUB_WORKFLOW_REF" =~ /([^/]+\.ya?ml)@ ]]; then
+          workflow_name="${BASH_REMATCH[1]}"
+          workflow_files+=("$GITHUB_WORKSPACE/.github/workflows/$workflow_name")
+          log "Adding specific workflow file to search: $workflow_name"
+        fi
+      fi
+      
+      # Add standard workflow locations
+      if [ -d "$GITHUB_WORKSPACE/.github/workflows" ]; then
+        # Find all YAML files in workflows directory
+        while IFS= read -r file; do
+          workflow_files+=("$file")
+        done < <(find "$GITHUB_WORKSPACE/.github/workflows" -name "*.yml" -o -name "*.yaml" 2>/dev/null)
+      fi
+    fi
+    
+    # Try to read the workflow file
+    for file in "${workflow_files[@]}"; do
+      if [ -f "$file" ]; then
+        log "Found workflow file: $file"
+        workflow_content=$(cat "$file")
+        log "Read workflow YAML from file: ${#workflow_content} bytes"
+        break
+      fi
+    done
+  fi
+  
+  # If we still have no content, create a minimal placeholder
+  if [ -z "$workflow_content" ]; then
+    log "No workflow YAML found, using placeholder"
+    workflow_content="# Workflow YAML could not be retrieved\n\nGitHub Environment:\n  GITHUB_WORKFLOW: $GITHUB_WORKFLOW\n  GITHUB_WORKFLOW_REF: $GITHUB_WORKFLOW_REF\n  GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
   fi
   
   # Limit YAML size to avoid exceeding request limits
@@ -335,15 +392,34 @@ signal_build_end() {
     BUILD_LOGS=$(get_build_logs)
     WORKFLOW_YAML=$(get_workflow_yaml)
     
-    # Base64 encode build logs and workflow YAML for better handling of special characters
-    ENCODED_BUILD_LOGS=$(echo "$BUILD_LOGS" | base64 -w 0)
-    ENCODED_WORKFLOW_YAML=$(echo "$WORKFLOW_YAML" | base64 -w 0)
-    
-    # Add build logs and workflow YAML to parameters (base64 encoded)
-    params="${params}&build_logs_encoding=base64"
-    params="${params}&build_logs=$(url_encode "$ENCODED_BUILD_LOGS")"
-    params="${params}&workflow_yaml_encoding=base64"
-    params="${params}&workflow_yaml=$(url_encode "$ENCODED_WORKFLOW_YAML")"
+    # Encode build logs and workflow YAML for better transmission
+    # First try base64 encoding, with fallback to pure URL encoding if it fails
+    if command -v base64 &>/dev/null; then
+      log "Using base64 encoding for build logs and workflow YAML"
+      ENCODED_BUILD_LOGS=$(echo "$BUILD_LOGS" | base64 -w 0 2>/dev/null || echo "$BUILD_LOGS")
+      ENCODED_WORKFLOW_YAML=$(echo "$WORKFLOW_YAML" | base64 -w 0 2>/dev/null || echo "$WORKFLOW_YAML")
+      
+      # Check if base64 encoding was successful
+      if [[ "$ENCODED_BUILD_LOGS" != "$BUILD_LOGS" ]]; then
+        params="${params}&build_logs_encoding=base64"
+        params="${params}&build_logs=$(url_encode "$ENCODED_BUILD_LOGS")"
+      else
+        log "Base64 encoding failed for build logs, using direct URL encoding"
+        params="${params}&build_logs=$(url_encode "$BUILD_LOGS")"
+      fi
+      
+      if [[ "$ENCODED_WORKFLOW_YAML" != "$WORKFLOW_YAML" ]]; then
+        params="${params}&workflow_yaml_encoding=base64"
+        params="${params}&workflow_yaml=$(url_encode "$ENCODED_WORKFLOW_YAML")"
+      else
+        log "Base64 encoding failed for workflow YAML, using direct URL encoding"
+        params="${params}&workflow_yaml=$(url_encode "$WORKFLOW_YAML")"
+      fi
+    else
+      log "Base64 command not available, using direct URL encoding"
+      params="${params}&build_logs=$(url_encode "$BUILD_LOGS")"
+      params="${params}&workflow_yaml=$(url_encode "$WORKFLOW_YAML")"
+    fi
     
     log "Collected build logs (${#BUILD_LOGS} bytes) and workflow YAML (${#WORKFLOW_YAML} bytes)"
     
