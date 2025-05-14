@@ -363,22 +363,75 @@ signal_build_end() {
     return 0
   fi
   
-  
+  # Output environment info for debugging
+  log "GitHub environment: GITHUB_WORKFLOW=$GITHUB_WORKFLOW, GITHUB_REPOSITORY=$GITHUB_REPOSITORY, GITHUB_RUN_ID=$GITHUB_RUN_ID"
+  log "Token availability: GITHUB_TOKEN=$([ -n "$GITHUB_TOKEN" ] && echo "available" || echo "not available")"
 
   # Default to PSE endpoint directly
   BASE_URL="https://pse.invisirisk.com"
   log "Using default PSE endpoint: $BASE_URL"
 
-  
   # Build URL for the GitHub run
   build_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
   
-  # Build parameters
+  # Build base parameters
   params="id=$(url_encode "$SCAN_ID")"
   params="${params}&build_url=$(url_encode "$build_url")"
   params="${params}&status=$(url_encode "${INPUT_JOB_STATUS:-unknown}")"
   
-  log "Sending end signal to PSE with parameters: $params"
+  log "Base parameters: $params"
+  
+  # Collect build logs and workflow YAML upfront (outside the retry loop)
+  log "Collecting build logs and workflow YAML..."
+  
+  # Debug variables
+  BUILD_LOGS=""
+  WORKFLOW_YAML=""
+  
+  # Explicit function calls with debugging
+  log "---BEGIN get_build_logs---"
+  BUILD_LOGS=$(get_build_logs)
+  log "---END get_build_logs (${#BUILD_LOGS} bytes)---"
+  
+  log "---BEGIN get_workflow_yaml---"
+  WORKFLOW_YAML=$(get_workflow_yaml)
+  log "---END get_workflow_yaml (${#WORKFLOW_YAML} bytes)---"
+  
+  # Prepare for encoded values
+  ENCODED_BUILD_LOGS=""
+  ENCODED_WORKFLOW_YAML=""
+  BUILD_LOGS_PARAM=""
+  WORKFLOW_YAML_PARAM=""
+  
+  # Encode build logs and workflow YAML for better transmission
+  if command -v base64 &>/dev/null; then
+    log "Using base64 encoding for data transmission"
+    ENCODED_BUILD_LOGS=$(echo "$BUILD_LOGS" | base64 -w 0 2>/dev/null || echo "$BUILD_LOGS")
+    ENCODED_WORKFLOW_YAML=$(echo "$WORKFLOW_YAML" | base64 -w 0 2>/dev/null || echo "$WORKFLOW_YAML")
+    
+    # Check if base64 encoding was successful
+    if [[ "$ENCODED_BUILD_LOGS" != "$BUILD_LOGS" ]]; then
+      BUILD_LOGS_PARAM="build_logs_encoding=base64&build_logs=$(url_encode "$ENCODED_BUILD_LOGS")"
+      log "Base64 encoding successful for build logs (${#ENCODED_BUILD_LOGS} bytes encoded)"
+    else
+      BUILD_LOGS_PARAM="build_logs=$(url_encode "$BUILD_LOGS")"
+      log "Base64 encoding failed for build logs, using direct URL encoding"
+    fi
+    
+    if [[ "$ENCODED_WORKFLOW_YAML" != "$WORKFLOW_YAML" ]]; then
+      WORKFLOW_YAML_PARAM="workflow_yaml_encoding=base64&workflow_yaml=$(url_encode "$ENCODED_WORKFLOW_YAML")"
+      log "Base64 encoding successful for workflow YAML (${#ENCODED_WORKFLOW_YAML} bytes encoded)"
+    else
+      WORKFLOW_YAML_PARAM="workflow_yaml=$(url_encode "$WORKFLOW_YAML")"
+      log "Base64 encoding failed for workflow YAML, using direct URL encoding"
+    fi
+  else
+    log "Base64 command not available, using direct URL encoding"
+    BUILD_LOGS_PARAM="build_logs=$(url_encode "$BUILD_LOGS")"
+    WORKFLOW_YAML_PARAM="workflow_yaml=$(url_encode "$WORKFLOW_YAML")"
+  fi
+  
+  log "Collected build logs (${#BUILD_LOGS} bytes) and workflow YAML (${#WORKFLOW_YAML} bytes)"
   
   # Send request with retries
   MAX_RETRIES=3
@@ -388,45 +441,14 @@ signal_build_end() {
   while [ $ATTEMPT -le $MAX_RETRIES ]; do
     log "Sending end signal, attempt $ATTEMPT of $MAX_RETRIES"
     
-    # Collect build logs and workflow YAML
-    BUILD_LOGS=$(get_build_logs)
-    WORKFLOW_YAML=$(get_workflow_yaml)
-    
-    # Encode build logs and workflow YAML for better transmission
-    # First try base64 encoding, with fallback to pure URL encoding if it fails
-    if command -v base64 &>/dev/null; then
-      log "Using base64 encoding for build logs and workflow YAML"
-      ENCODED_BUILD_LOGS=$(echo "$BUILD_LOGS" | base64 -w 0 2>/dev/null || echo "$BUILD_LOGS")
-      ENCODED_WORKFLOW_YAML=$(echo "$WORKFLOW_YAML" | base64 -w 0 2>/dev/null || echo "$WORKFLOW_YAML")
-      
-      # Check if base64 encoding was successful
-      if [[ "$ENCODED_BUILD_LOGS" != "$BUILD_LOGS" ]]; then
-        params="${params}&build_logs_encoding=base64"
-        params="${params}&build_logs=$(url_encode "$ENCODED_BUILD_LOGS")"
-      else
-        log "Base64 encoding failed for build logs, using direct URL encoding"
-        params="${params}&build_logs=$(url_encode "$BUILD_LOGS")"
-      fi
-      
-      if [[ "$ENCODED_WORKFLOW_YAML" != "$WORKFLOW_YAML" ]]; then
-        params="${params}&workflow_yaml_encoding=base64"
-        params="${params}&workflow_yaml=$(url_encode "$ENCODED_WORKFLOW_YAML")"
-      else
-        log "Base64 encoding failed for workflow YAML, using direct URL encoding"
-        params="${params}&workflow_yaml=$(url_encode "$WORKFLOW_YAML")"
-      fi
-    else
-      log "Base64 command not available, using direct URL encoding"
-      params="${params}&build_logs=$(url_encode "$BUILD_LOGS")"
-      params="${params}&workflow_yaml=$(url_encode "$WORKFLOW_YAML")"
-    fi
-    
-    log "Collected build logs (${#BUILD_LOGS} bytes) and workflow YAML (${#WORKFLOW_YAML} bytes)"
+    # Combine all parameters for this attempt
+    full_params="${params}&${BUILD_LOGS_PARAM}&${WORKFLOW_YAML_PARAM}"
+    log "Parameter size: ${#full_params} bytes"
     
     RESPONSE=$(curl -X POST "${BASE_URL}/end" \
       -H 'Content-Type: application/x-www-form-urlencoded' \
       -H 'User-Agent: pse-action' \
-      -d "$params" \
+      -d "$full_params" \
       -k --tlsv1.2 --insecure \
       --connect-timeout 5 \
       --retry 3 --retry-delay 2 --max-time 30 \
