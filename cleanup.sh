@@ -175,12 +175,67 @@ signal_build_end() {
   
   # Build URL for the GitHub run
   build_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+  # --- GitHub API Log Download ---
+  DOWNLOADED_LOG_ZIP_FILE="/tmp/workflow_run_logs_${GITHUB_RUN_ID:-unknown}.zip"
+  GITHUB_API_LOG_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/logs"
+
+  log "Attempting to download workflow run logs from GitHub API: $GITHUB_API_LOG_URL"
+
+  # Ensure GITHUB_TOKEN is available; it's typically provided by Actions
+  if [ -z "$GITHUB_TOKEN" ]; then
+    log "WARNING: GITHUB_TOKEN is not set. Cannot download logs from GitHub API."
+    DOWNLOADED_LOG_ZIP_FILE="" # Ensure we don't try to send a non-existent file
+  else
+    # Download the log archive
+    # -L follows redirects, -o saves to file
+    # Headers for authentication and API versioning
+    log "Downloading logs to $DOWNLOADED_LOG_ZIP_FILE..."
+    API_RESPONSE_CODE=$(curl -s -L \
+      -H "Accept: application/vnd.github+json" \
+      -H "Authorization: Bearer $GITHUB_TOKEN" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      -o "$DOWNLOADED_LOG_ZIP_FILE" \
+      -w "%{http_code}" \
+      "$GITHUB_API_LOG_URL")
+
+    if [ "$API_RESPONSE_CODE" = "200" ] && [ -f "$DOWNLOADED_LOG_ZIP_FILE" ] && [ -s "$DOWNLOADED_LOG_ZIP_FILE" ]; then
+      log "Successfully downloaded workflow logs from GitHub API (HTTP $API_RESPONSE_CODE). Archive: $DOWNLOADED_LOG_ZIP_FILE"
+    elif [ "$API_RESPONSE_CODE" = "302" ]; then # Check if it's a redirect that curl -L should have handled
+        log "Received HTTP 302, curl -L should have followed. Checking if file was downloaded."
+        if [ -f "$DOWNLOADED_LOG_ZIP_FILE" ] && [ -s "$DOWNLOADED_LOG_ZIP_FILE" ]; then
+            log "Log archive downloaded successfully after redirect. Archive: $DOWNLOADED_LOG_ZIP_FILE"
+        else
+            log "WARNING: Failed to download logs after redirect or file is empty (HTTP $API_RESPONSE_CODE). File: $DOWNLOADED_LOG_ZIP_FILE"
+            DOWNLOADED_LOG_ZIP_FILE=""
+        fi
+    else
+      log "WARNING: Failed to download logs from GitHub API (HTTP $API_RESPONSE_CODE). See curl output above if any."
+      # Clean up potentially empty or partial file
+      rm -f "$DOWNLOADED_LOG_ZIP_FILE"
+      DOWNLOADED_LOG_ZIP_FILE=""
+    fi
+  fi
+  # --- End GitHub API Log Download ---
   
   # Build parameters
-  params="id=$(url_encode "$SCAN_ID")"
-  params="${params}&build_url=$(url_encode "$build_url")"
-  params="${params}&status=$(url_encode "${INPUT_JOB_STATUS:-unknown}")"
+  # Build parameters for the curl command to InvisiRisk
+  params_data=(
+    -F "id=$(url_encode "$SCAN_ID")"
+    -F "build_url=$(url_encode "$build_url")"
+    -F "status=$(url_encode "${INPUT_JOB_STATUS:-unknown}")"
+  )
   
+  # Add log file to curl command if download was successful
+  if [ -n "$DOWNLOADED_LOG_ZIP_FILE" ] && [ -f "$DOWNLOADED_LOG_ZIP_FILE" ]; then
+    log "Preparing to send downloaded log archive $DOWNLOADED_LOG_ZIP_FILE with the end signal."
+    params_data+=(-F "build_logs=@$DOWNLOADED_LOG_ZIP_FILE")
+  else
+    log "No GitHub log archive will be sent (download failed or was skipped)."
+  fi
+
+  log "Sending end signal to PSE with parameters and potentially logs."
+
   log "Sending end signal to PSE with parameters: $params"
   
   # Send request with retries
@@ -194,7 +249,7 @@ signal_build_end() {
     RESPONSE=$(curl -X POST "${BASE_URL}/end" \
       -H 'Content-Type: application/x-www-form-urlencoded' \
       -H 'User-Agent: pse-action' \
-      -d "$params" \
+      "${params_data[@]}" \
       -k --tlsv1.2 --insecure \
       --connect-timeout 5 \
       --retry 3 --retry-delay 2 --max-time 10 \
