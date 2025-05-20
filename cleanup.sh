@@ -180,6 +180,10 @@ signal_build_end() {
   DOWNLOADED_LOG_ZIP_FILE="/tmp/workflow_run_logs_${GITHUB_RUN_ID:-unknown}.zip"
   GITHUB_API_LOG_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/logs"
 
+  # Add a delay to allow GitHub API to make logs available
+  log "Waiting 30 seconds for logs to become available..."
+  sleep 30
+
   log "Attempting to download workflow run logs from GitHub API: $GITHUB_API_LOG_URL"
 
   # Ensure GITHUB_TOKEN is available; it's typically provided by Actions
