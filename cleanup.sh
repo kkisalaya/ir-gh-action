@@ -178,29 +178,22 @@ signal_build_end() {
 
   # --- GitHub API Log Download ---
   DOWNLOADED_LOG_ZIP_FILE="/tmp/workflow_run_logs_${GITHUB_RUN_ID:-unknown}.zip"
-  # Determine the repositories involved
-  TARGET_REPOSITORY="${GITHUB_REPOSITORY}"
-  ACTION_REPOSITORY="${GITHUB_ACTION_REPOSITORY:-$GITHUB_REPOSITORY}"
-  WORKFLOW_REPOSITORY="${GITHUB_WORKFLOW_REPOSITORY:-$GITHUB_REPOSITORY}"
   
-  log "Debug: Repositories involved:"
-  log "- Target Repository: $TARGET_REPOSITORY"
-  log "- Action Repository: $ACTION_REPOSITORY"
-  log "- Workflow Repository: $WORKFLOW_REPOSITORY"
-  
-  # Check if we're trying to access logs from a different repository
-  if [ "$TARGET_REPOSITORY" != "$ACTION_REPOSITORY" ] || [ "$TARGET_REPOSITORY" != "$WORKFLOW_REPOSITORY" ]; then
-    log "WARNING: Attempting to access logs from $TARGET_REPOSITORY while action is running in $ACTION_REPOSITORY"
-    log "This requires a Personal Access Token (PAT) with actions:read scope."
-    if [ -z "$GITHUB_PAT" ]; then
-      log "GITHUB_PAT is not set. Cannot access logs from different repository."
-      DOWNLOADED_LOG_ZIP_FILE=""
-      return 0
-    fi
+  # When going through PSE proxy, we need elevated permissions
+  # Try to use PAT first, fall back to GITHUB_TOKEN
+  if [ -n "$GITHUB_PAT" ]; then
+    log "Using provided GITHUB_PAT for authentication"
     TOKEN_TO_USE="$GITHUB_PAT"
   else
+    log "Using default GITHUB_TOKEN for authentication"
     TOKEN_TO_USE="$GITHUB_TOKEN"
   fi
+
+  # Log context for debugging
+  log "Debug: GitHub Context:"
+  log "- Repository: $GITHUB_REPOSITORY"
+  log "- Run ID: $GITHUB_RUN_ID"
+  log "- Token Type: ${TOKEN_TO_USE:0:4}... (truncated)"
 
   GITHUB_API_LOG_URL="https://api.github.com/repos/${TARGET_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/logs"
 
