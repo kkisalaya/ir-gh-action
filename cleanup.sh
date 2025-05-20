@@ -195,13 +195,18 @@ signal_build_end() {
     # -L follows redirects, -o saves to file
     # Headers for authentication and API versioning
     log "Downloading logs to $DOWNLOADED_LOG_ZIP_FILE..."
-    API_RESPONSE_CODE=$(curl -s -L \
+    # Use -v for verbose output to see full request/response details
+    API_RESPONSE_CODE=$(curl -v -L \
       -H "Accept: application/vnd.github+json" \
       -H "Authorization: Bearer $GITHUB_TOKEN" \
       -H "X-GitHub-Api-Version: 2022-11-28" \
       -o "$DOWNLOADED_LOG_ZIP_FILE" \
       -w "%{http_code}" \
-      "$GITHUB_API_LOG_URL")
+      "$GITHUB_API_LOG_URL" 2>&1 | tee /tmp/curl_output.log)
+    
+    # Display the full curl output for debugging
+    log "Curl debug output:"
+    cat /tmp/curl_output.log
 
     if [ "$API_RESPONSE_CODE" = "200" ] && [ -f "$DOWNLOADED_LOG_ZIP_FILE" ] && [ -s "$DOWNLOADED_LOG_ZIP_FILE" ]; then
       log "Successfully downloaded workflow logs from GitHub API (HTTP $API_RESPONSE_CODE). Archive: $DOWNLOADED_LOG_ZIP_FILE"
