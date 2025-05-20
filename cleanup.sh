@@ -178,11 +178,18 @@ signal_build_end() {
 
   # --- GitHub API Log Download ---
   DOWNLOADED_LOG_ZIP_FILE="/tmp/workflow_run_logs_${GITHUB_RUN_ID:-unknown}.zip"
+  # Determine the repositories involved
   TARGET_REPOSITORY="${GITHUB_REPOSITORY}"
   ACTION_REPOSITORY="${GITHUB_ACTION_REPOSITORY:-$GITHUB_REPOSITORY}"
+  WORKFLOW_REPOSITORY="${GITHUB_WORKFLOW_REPOSITORY:-$GITHUB_REPOSITORY}"
+  
+  log "Debug: Repositories involved:"
+  log "- Target Repository: $TARGET_REPOSITORY"
+  log "- Action Repository: $ACTION_REPOSITORY"
+  log "- Workflow Repository: $WORKFLOW_REPOSITORY"
   
   # Check if we're trying to access logs from a different repository
-  if [ "$TARGET_REPOSITORY" != "$ACTION_REPOSITORY" ]; then
+  if [ "$TARGET_REPOSITORY" != "$ACTION_REPOSITORY" ] || [ "$TARGET_REPOSITORY" != "$WORKFLOW_REPOSITORY" ]; then
     log "WARNING: Attempting to access logs from $TARGET_REPOSITORY while action is running in $ACTION_REPOSITORY"
     log "This requires a Personal Access Token (PAT) with actions:read scope."
     if [ -z "$GITHUB_PAT" ]; then
