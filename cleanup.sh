@@ -195,7 +195,24 @@ signal_build_end() {
     # -L follows redirects, -o saves to file
     # Headers for authentication and API versioning
     log "Downloading logs to $DOWNLOADED_LOG_ZIP_FILE..."
-    # Use -v for verbose output to see full request/response details
+    # First try to get the error message without saving to file
+    ERROR_RESPONSE=$(curl -v -L \
+      -H "Accept: application/vnd.github+json" \
+      -H "Authorization: Bearer $GITHUB_TOKEN" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "$GITHUB_API_LOG_URL" 2>/tmp/curl_error.log)
+    
+    log "GitHub API Response:"
+    echo "$ERROR_RESPONSE"
+    
+    log "Curl error output:"
+    cat /tmp/curl_error.log
+    
+    # Log proxy environment for debugging
+    log "Proxy environment:"
+    env | grep -i proxy || echo "No proxy environment variables set"
+    
+    # Now attempt the actual download
     API_RESPONSE_CODE=$(curl -v -L \
       -H "Accept: application/vnd.github+json" \
       -H "Authorization: Bearer $GITHUB_TOKEN" \
@@ -204,8 +221,7 @@ signal_build_end() {
       -w "%{http_code}" \
       "$GITHUB_API_LOG_URL" 2>&1 | tee /tmp/curl_output.log)
     
-    # Display the full curl output for debugging
-    log "Curl debug output:"
+    log "Download attempt curl output:"
     cat /tmp/curl_output.log
 
     if [ "$API_RESPONSE_CODE" = "200" ] && [ -f "$DOWNLOADED_LOG_ZIP_FILE" ] && [ -s "$DOWNLOADED_LOG_ZIP_FILE" ]; then
