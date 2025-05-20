@@ -178,7 +178,24 @@ signal_build_end() {
 
   # --- GitHub API Log Download ---
   DOWNLOADED_LOG_ZIP_FILE="/tmp/workflow_run_logs_${GITHUB_RUN_ID:-unknown}.zip"
-  GITHUB_API_LOG_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/logs"
+  TARGET_REPOSITORY="${GITHUB_REPOSITORY}"
+  ACTION_REPOSITORY="${GITHUB_ACTION_REPOSITORY:-$GITHUB_REPOSITORY}"
+  
+  # Check if we're trying to access logs from a different repository
+  if [ "$TARGET_REPOSITORY" != "$ACTION_REPOSITORY" ]; then
+    log "WARNING: Attempting to access logs from $TARGET_REPOSITORY while action is running in $ACTION_REPOSITORY"
+    log "This requires a Personal Access Token (PAT) with actions:read scope."
+    if [ -z "$GITHUB_PAT" ]; then
+      log "GITHUB_PAT is not set. Cannot access logs from different repository."
+      DOWNLOADED_LOG_ZIP_FILE=""
+      return 0
+    fi
+    TOKEN_TO_USE="$GITHUB_PAT"
+  else
+    TOKEN_TO_USE="$GITHUB_TOKEN"
+  fi
+
+  GITHUB_API_LOG_URL="https://api.github.com/repos/${TARGET_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/logs"
 
   # Add a delay to allow GitHub API to make logs available
   log "Waiting 30 seconds for logs to become available..."
@@ -186,9 +203,9 @@ signal_build_end() {
 
   log "Attempting to download workflow run logs from GitHub API: $GITHUB_API_LOG_URL"
 
-  # Ensure GITHUB_TOKEN is available; it's typically provided by Actions
-  if [ -z "$GITHUB_TOKEN" ]; then
-    log "WARNING: GITHUB_TOKEN is not set. Cannot download logs from GitHub API."
+  # Ensure we have a token available
+  if [ -z "$TOKEN_TO_USE" ]; then
+    log "WARNING: No token available. Cannot download logs from GitHub API."
     DOWNLOADED_LOG_ZIP_FILE="" # Ensure we don't try to send a non-existent file
   else
     # Download the log archive
@@ -198,7 +215,7 @@ signal_build_end() {
     # First try to get the error message without saving to file
     ERROR_RESPONSE=$(curl -v -L \
       -H "Accept: application/vnd.github+json" \
-      -H "Authorization: Bearer $GITHUB_TOKEN" \
+      -H "Authorization: Bearer $TOKEN_TO_USE" \
       -H "X-GitHub-Api-Version: 2022-11-28" \
       "$GITHUB_API_LOG_URL" 2>/tmp/curl_error.log)
     
@@ -215,7 +232,7 @@ signal_build_end() {
     # Now attempt the actual download
     API_RESPONSE_CODE=$(curl -v -L \
       -H "Accept: application/vnd.github+json" \
-      -H "Authorization: Bearer $GITHUB_TOKEN" \
+      -H "Authorization: Bearer $TOKEN_TO_USE" \
       -H "X-GitHub-Api-Version: 2022-11-28" \
       -o "$DOWNLOADED_LOG_ZIP_FILE" \
       -w "%{http_code}" \
