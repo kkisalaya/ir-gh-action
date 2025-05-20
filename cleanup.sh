@@ -189,13 +189,26 @@ signal_build_end() {
     TOKEN_TO_USE="$GITHUB_TOKEN"
   fi
 
+  # Ensure we have the repository information
+  if [ -z "$GITHUB_REPOSITORY" ]; then
+    log "ERROR: GITHUB_REPOSITORY environment variable is not set"
+    DOWNLOADED_LOG_ZIP_FILE=""
+    return 1
+  fi
+
   # Log context for debugging
   log "Debug: GitHub Context:"
   log "- Repository: $GITHUB_REPOSITORY"
   log "- Run ID: $GITHUB_RUN_ID"
   log "- Token Type: ${TOKEN_TO_USE:0:4}... (truncated)"
 
-  GITHUB_API_LOG_URL="https://api.github.com/repos/${TARGET_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/logs"
+  # Construct and validate the API URL
+  GITHUB_API_LOG_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/logs"
+  log "Debug: API URL components:"
+  log "- Base: https://api.github.com/repos"
+  log "- Repository: ${GITHUB_REPOSITORY}"
+  log "- Run ID: ${GITHUB_RUN_ID}"
+  log "- Full URL: ${GITHUB_API_LOG_URL}"
 
   # Add a delay to allow GitHub API to make logs available
   log "Waiting 30 seconds for logs to become available..."
